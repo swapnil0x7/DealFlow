@@ -1,0 +1,23 @@
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App'
+
+const root = createRoot(document.getElementById('root')!)
+root.render(<main className="workspace"><p role="status">Starting your workspace…</p></main>)
+
+async function bootstrap() {
+  try {
+    const { startSimulation } = await import('./mocks/browser')
+    await startSimulation()
+    root.render(<StrictMode><App /></StrictMode>)
+  } catch {
+    root.render(<main className="workspace" role="alert">
+      <h1>DealDesk couldn’t start</h1>
+      <p>The demo service could not initialize. Use localhost or HTTPS, allow service workers, then reload.</p>
+      <button onClick={() => window.location.reload()}>Reload workspace</button>
+    </main>)
+  }
+}
+
+void bootstrap()
