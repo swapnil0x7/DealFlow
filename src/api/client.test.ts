@@ -129,6 +129,34 @@ describe('HTTP contracts through the typed client', () => {
     expect((await client.load()).sessionId).not.toBe(sessionId)
   })
 
+  it('resyncs within the same client generation so an outstanding valid write response remains usable', async () => {
+    const client = api()
+    const { sessionId } = await client.load()
+    const started = deferred()
+    const release = deferred()
+    server.use(http.patch('http://localhost/api/deals/:id', async () => {
+      const result = await simulation.move(move(sessionId))
+      started.resolve()
+      await release.promise
+      return HttpResponse.json(result)
+    }))
+    const pending = client.move(move(sessionId))
+    await started.promise
+    expect((await client.resync()).deals[0]).toMatchObject({ version: 2 })
+    release.resolve()
+    await expect(pending).resolves.toMatchObject({ status: 'succeeded' })
+  })
+
+  it('guards old-session control writes and rejects a resync that belongs to a reset session', async () => {
+    const client = api()
+    await client.load()
+    simulation.reset()
+    await expect(client.configure({ teammatesEnabled: true })).rejects.toMatchObject({ issue: { code: 'session_expired' } })
+    await expect(client.forceFault('lost-response')).rejects.toMatchObject({ issue: { code: 'session_expired' } })
+    await expect(client.resync()).rejects.toMatchObject({ issue: { code: 'session_expired' } })
+    expect(simulation.configuration().teammatesEnabled).toBe(false)
+  })
+
   it('ignores a stale HTTP snapshot delivered after the client has reset', async () => {
     const started = deferred()
     const release = deferred()

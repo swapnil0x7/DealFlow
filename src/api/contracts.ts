@@ -59,6 +59,7 @@ export interface ChangePage {
   nextCursor: number
   hasMore: boolean
   resyncRequired: boolean
+  deliveryPaused?: boolean
 }
 
 export type OperationStatus =

@@ -1,5 +1,6 @@
 import { ApiError } from './contracts'
 import type { ApiIssue, ChangePage, MoveCommand, MoveResult, OperationStatus, Snapshot } from './contracts'
+import type { SimulationConfiguration, SimulationFault, SimulationSettings } from './simulation-contracts'
 
 /** A transport error does not say whether a write committed. Reconcile before assuming failure. */
 export class TransportError extends Error {
@@ -80,9 +81,35 @@ export class DealApi {
     return this.request(`/operations/${encodeURIComponent(mutationId)}`, { headers: this.headers() })
   }
 
-  changes(after: number): Promise<ChangePage> {
-    return this.request(`/changes?after=${after}`, { headers: this.headers() })
+  changes(after: number, signal?: AbortSignal): Promise<ChangePage> {
+    return this.request(`/changes?after=${after}`, { headers: this.headers(), signal })
   }
+
+  async resync(signal?: AbortSignal): Promise<Snapshot> {
+    const snapshot = await this.request<Snapshot>('/deals', { headers: this.headers(), signal })
+    if (snapshot.sessionId !== this.sessionId) throw new ApiError('session_expired', 'The simulation session has changed. Reload the workspace.')
+    return snapshot
+  }
+
+  simulation(signal?: AbortSignal): Promise<SimulationConfiguration> { return this.request('/simulation', { signal }) }
+
+  private controlHeaders(): Record<string, string> {
+    return { 'Content-Type': 'application/json', ...(this.sessionId ? { 'X-DealDesk-Session': this.sessionId } : {}) }
+  }
+
+  configure(settings: Partial<SimulationSettings>): Promise<SimulationConfiguration> {
+    return this.request('/simulation', { method: 'PATCH', headers: this.controlHeaders(), body: JSON.stringify(settings) })
+  }
+
+  forceFault(fault: SimulationFault): Promise<{ ok: true }> {
+    return this.request('/simulation/faults', { method: 'POST', headers: this.controlHeaders(), body: JSON.stringify({ fault }) })
+  }
+
+  forceConflict(dealId: string): Promise<MoveResult> {
+    return this.request('/simulation/conflict', { method: 'POST', headers: this.controlHeaders(), body: JSON.stringify({ dealId }) })
+  }
+
+  invalidate(): void { this.generation++; this.sessionId = undefined }
 
   async reset(seed = 42): Promise<void> {
     this.generation++

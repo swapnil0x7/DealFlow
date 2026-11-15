@@ -5,8 +5,8 @@ test('built demo initializes its worker and serves full-volume guarded API reque
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Your pipeline is ready' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Pipeline summary' })).toContainText('50,000')
+  await expect(page.getByRole('heading', { name: 'Sales pipeline', exact: true })).toBeVisible()
+  await expect(page.getByLabel('Pipeline summary')).toContainText('50,000')
   const outcome = await page.evaluate(async () => {
     const snapshot = await (await fetch('/api/deals')).json() as Snapshot
     await fetch('/api/simulation', {
@@ -49,7 +49,7 @@ test('initial load failures offer a working keyboard-accessible retry', async ({
   await expect(page.getByRole('alert')).toContainText('We couldn’t load your pipeline')
   await page.getByRole('button', { name: 'Retry loading' }).focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('heading', { name: 'Your pipeline is ready' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sales pipeline', exact: true })).toBeVisible()
 })
 
 test('worker startup failure shows recovery instructions instead of an empty pipeline', async ({ page }) => {
@@ -61,12 +61,12 @@ test('worker startup failure shows recovery instructions instead of an empty pip
   await page.goto('/')
   await expect(page.getByRole('alert')).toContainText('DealDesk couldn’t start')
   await expect(page.getByRole('button', { name: 'Reload workspace' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Your pipeline is ready' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Sales pipeline', exact: true })).toHaveCount(0)
 })
 
 test('offline simulation blocks data requests while local controls can reconnect', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Your pipeline is ready' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sales pipeline', exact: true })).toBeVisible()
   const recovered = await page.evaluate(async () => {
     const configure = (offline: boolean) => fetch('/api/simulation', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ offline }),

@@ -2,9 +2,9 @@
 
 Source: [plan.md](./plan.md). Prepared: 14 November 2026.
 
-This document turns the design into an ordered implementation backlog. `plan.md` remains the product and technical specification; its R/Q/D requirement IDs and T01–T24 verification scenarios are referenced below. Stage 1 is implemented; see `docs/validation.md` for verification evidence. Other stages remain pending, except for the foundation tooling needed by Stage 1.
+This document turns the design into an ordered implementation backlog. `plan.md` remains the product and technical specification; its R/Q/D requirement IDs and T01–T24 verification scenarios are referenced below. Stages 1–4 are implemented; see `docs/validation.md` for verification evidence. Other stages remain pending, except for the foundation tooling needed by Stage 1.
 
-The repository now contains the deterministic domain/data layer, guarded in-memory repository, adjustable MSW HTTP simulation, typed API client, a minimal pipeline summary, and Stage 1 verification tooling. The interactive workspace and workflows remain future work. Stage 0 is only partially addressed: its `npm start` bootstrap is still pending.
+The repository now contains the deterministic domain/data layer, guarded in-memory repository, adjustable MSW HTTP simulation, typed API client, confirmed read model, virtualized workspace, filters, attention rules, and single-deal editing/recovery/Undo, simulated teammates, a versioned live feed, stable updates, and simulation/reset controls with verification tooling. Bulk workflows remain future work. Stage 0 is only partially addressed: its `npm start` bootstrap is still pending.
 
 ## How to use the checkpoints
 
@@ -22,9 +22,9 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 | --- | --- | --- | --- |
 | 0. Foundation | 0.1–0.3 | App starts reliably; quality checks and test tools are available | Existing starter |
 | 1. Domain and fake API — implemented | 1.1–1.3 | Repeatable 50,000-deal dataset and guarded simulated saves | Stage 0 |
-| 2. Readable workspace | 2.1–2.3 | Searchable, filterable, keyboard-accessible sales table | Stage 1 |
-| 3. Single-deal workflow | 3.1–3.3 | One deal can be moved, retried, reviewed, reconciled, and undone | Stage 2 |
-| 4. Collaboration | 4.1–4.3 | Teammate updates arrive without disrupting active work | Stage 3 |
+| 2. Readable workspace — implemented | 2.1–2.3 | Searchable, filterable, keyboard-accessible sales table | Stage 1 |
+| 3. Single-deal workflow — implemented | 3.1–3.3 | One deal can be moved, retried, reviewed, reconciled, and undone | Stage 2 |
+| 4. Collaboration — implemented | 4.1–4.3 | Teammate updates arrive without disrupting active work | Stage 3 |
 | 5. Bulk workflow | 5.1–5.3 | Exact selection, bounded processing, and partial recovery at scale | Stage 4 |
 | 6. Full verification | 6.1–6.3 | Integrated correctness, accessibility, and measured performance | Stage 5 |
 | 7. Submission | 7.1–7.3 | Accurate documentation, recording, and reproducible handoff | Stage 6 |
@@ -108,10 +108,10 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 2.1 — Load confirmed data into a virtualized table
 
-- [ ] Build the confirmed client read model keyed by deal ID; accept newer record versions and ignore older/equal snapshots.
-- [ ] Render AG Grid Community with stable IDs, lightweight columns, a bounded viewport, and row/column virtualization.
-- [ ] Show company, value, owner, stage, customer activity, attention reason, and operation status columns.
-- [ ] Implement loading, failed-load with Retry, and empty states; show total and matching counts.
+- [x] Build the confirmed client read model keyed by deal ID; accept newer record versions and ignore older/equal snapshots.
+- [x] Render AG Grid Community with stable IDs, lightweight columns, a bounded viewport, and row/column virtualization.
+- [x] Show company, value, owner, stage, customer activity, attention reason, and operation status columns.
+- [x] Implement loading, failed-load with Retry, and empty states; show total and matching counts.
 
 **Acceptance:** All 50,000 records load through HTTP. Scrolling mounts a bounded set of rows, and a failed initial load can recover. Add T05 read-model checks and T19 browser coverage.
 
@@ -119,11 +119,11 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 2.2 — Add views, filters, and explainable prioritization
 
-- [ ] Add All deals, My deals, and Needs attention using a fixed demo salesperson.
-- [ ] Add company search, owner/stage filters, clear filters, and visible active criteria; start with about 200 ms search debounce.
-- [ ] Share filter predicates between workspace membership and future all-matching selection.
-- [ ] Implement the specified age/activity/negotiation attention rules, excluding Won/Lost; use `createdAt` when activity is absent.
-- [ ] Order attention deterministically by urgency, activity baseline, value descending, then ID. Explain the rules in the UI and support periodic time-based reevaluation.
+- [x] Add All deals, My deals, and Needs attention using a fixed demo salesperson.
+- [x] Add company search, owner/stage filters, clear filters, and visible active criteria; start with about 200 ms search debounce.
+- [x] Share filter predicates between workspace membership and future all-matching selection.
+- [x] Implement the specified age/activity/negotiation attention rules, excluding Won/Lost; use `createdAt` when activity is absent.
+- [x] Order attention deterministically by urgency, activity baseline, value descending, then ID. Explain the rules in the UI and support periodic time-based reevaluation.
 
 **Acceptance:** T18 passes with fixed dates, including exact threshold boundaries. Counts and membership agree for combined filters, and saved stage changes do not invent customer activity.
 
@@ -131,9 +131,9 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 2.3 — Establish usable keyboard and table behavior
 
-- [ ] Verify documented grid navigation, visible focus, Tab order, and movement to initially off-screen rows.
-- [ ] Label toolbar controls and provide readable INR/date formatting and text alongside state colors.
-- [ ] Establish stable columns/callbacks and focused state subscriptions; record an initial full-data interaction baseline.
+- [x] Verify documented grid navigation, visible focus, Tab order, and movement to initially off-screen rows.
+- [x] Label toolbar controls and provide readable INR/date formatting and text alongside state colors.
+- [x] Establish stable columns/callbacks and focused state subscriptions; record an initial full-data interaction baseline.
 
 **Acceptance:** A keyboard user can enter the workspace, change filters, navigate off-screen rows, and leave the grid predictably. Begin T17/T22/T23 evidence; later stages extend it to editing and dialogs.
 
@@ -143,11 +143,11 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 3.1 — Move one deal with honest save feedback
 
-- [ ] Add the operation service/store and explicit item states: queued, saving, succeeded, failed, conflicted, unconfirmed, skipped.
-- [ ] Capture the displayed version, previous stage, actor, target stage, and stable mutation ID when issuing a command.
-- [ ] Add a keyboard-accessible stage editor; retain the confirmed stage while showing “Moving to …”.
-- [ ] Block overlapping local writes to an unresolved deal while allowing work on others.
-- [ ] Add a persistent results panel with inspectable outcomes, not toast-only feedback.
+- [x] Add the operation service/store and explicit item states: queued, saving, succeeded, failed, conflicted, unconfirmed, skipped.
+- [x] Capture the displayed version, previous stage, actor, target stage, and stable mutation ID when issuing a command.
+- [x] Add a keyboard-accessible stage editor; retain the confirmed stage while showing “Moving to …”.
+- [x] Block overlapping local writes to an unresolved deal while allowing work on others.
+- [x] Add a persistent results panel with inspectable outcomes, not toast-only feedback.
 
 **Acceptance:** T02/T03 browser checks pass. A save changes the displayed confirmed value only after confirmation; definite failures remain visible and unrelated rows remain usable.
 
@@ -155,11 +155,11 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 3.2 — Recover failures, conflicts, and uncertain outcomes
 
-- [ ] Retry definite failures using the original mutation ID and expected version.
-- [ ] Add a labeled Radix conflict dialog showing the latest saved record; explicit reviewed resubmission creates a new command.
-- [ ] Reconcile interrupted/time-out outcomes through the operation endpoint; distinguish unresolved from definitively failed work.
-- [ ] Prevent late errors from downgrading confirmed success; retain a hook for matching change-event confirmation in stage 4.
-- [ ] Restore focus on dialog close and announce concise results.
+- [x] Retry definite failures using the original mutation ID and expected version.
+- [x] Add a labeled Radix conflict dialog showing the latest saved record; explicit reviewed resubmission creates a new command.
+- [x] Reconcile interrupted/time-out outcomes through the operation endpoint; distinguish unresolved from definitively failed work.
+- [x] Prevent late errors from downgrading confirmed success; retain a hook for matching change-event confirmation in stage 4.
+- [x] Restore focus on dialog close and announce concise results.
 
 **Acceptance:** T03–T07 relevant single-move paths pass. A committed save whose response is lost reconciles without a duplicate write even when change delivery is unavailable. Retry never silently adopts a newer expected version.
 
@@ -167,9 +167,9 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 3.3 — Add guarded single-deal Undo
 
-- [ ] Undo with a new mutation ID and the version produced by the original success; restore its previous stage only if the guard passes.
-- [ ] Link Undo to its original operation and prevent repeated reversal of unrelated newer work.
-- [ ] Reconcile unconfirmed work before offering Undo; apply the retention/expiry policy to visible history and action eligibility.
+- [x] Undo with a new mutation ID and the version produced by the original success; restore its previous stage only if the guard passes.
+- [x] Link Undo to its original operation and prevent repeated reversal of unrelated newer work.
+- [x] Reconcile unconfirmed work before offering Undo; apply the retention/expiry policy to visible history and action eligibility.
 
 **Acceptance:** T13 passes for eligible Undo, teammate edits after success, and repeated invocation. The entire single-deal success/failure/Retry/conflict/Undo workflow works by keyboard.
 
@@ -179,10 +179,10 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 4.1 — Receive versioned teammate changes
 
-- [ ] Simulate other seeded actors through the same guarded repository write path.
-- [ ] Add one-in-flight feed polling, initially about once per second while visible; pause offline/hidden and catch up on reconnect/focus.
-- [ ] Apply ordered feed pages before advancing the cursor; continue when more pages exist. Reconcile expired cursors through a fresh snapshot.
-- [ ] Match mutation receipts/events to local operations even if a newer record version is already displayed; do not downgrade confirmed success on a late transport error.
+- [x] Simulate other seeded actors through the same guarded repository write path.
+- [x] Add one-in-flight feed polling, initially about once per second while visible; pause offline/hidden and catch up on reconnect/focus.
+- [x] Apply ordered feed pages before advancing the cursor; continue when more pages exist. Reconcile expired cursors through a fresh snapshot.
+- [x] Match mutation receipts/events to local operations even if a newer record version is already displayed; do not downgrade confirmed success on a late transport error.
 
 **Acceptance:** T04–T06 and T21 pass for competing writes, out-of-order arrivals, feed-before-response confirmation, reconnect, and expired-cursor resync. Normal updates do not refetch all 50,000 deals.
 
@@ -190,10 +190,10 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 4.2 — Preserve the user's working position
 
-- [ ] Apply changed values by stable ID while deferring disruptive sort/filter membership recomputation during active work.
-- [ ] Show update indicators and labels for displayed rows that no longer match filters.
-- [ ] Add explicit Refresh list; preserve focus/scroll where possible and announce a sensible fallback if the active row disappears.
-- [ ] Define selection-preservation hooks for stage 5: resync/refresh must never overwrite previously reviewed versions.
+- [x] Apply changed values by stable ID while deferring disruptive sort/filter membership recomputation during active work.
+- [x] Show update indicators and labels for displayed rows that no longer match filters.
+- [x] Add explicit Refresh list; preserve focus/scroll where possible and announce a sensible fallback if the active row disappears.
+- [x] Define selection-preservation hooks for stage 5: resync/refresh must never overwrite previously reviewed versions.
 
 **Acceptance:** T16 passes with editing, scrolling, and filters active. Pending records stay inspectable. Complete the selection-specific T16/T21 cases in stage 5.
 
@@ -201,10 +201,10 @@ Work through stages 0–7 in order and checkpoints in their listed order. Each c
 
 ### 4.3 — Finish simulation controls and lifecycle cleanup
 
-- [ ] Expose validated delay/failure settings, teammate activity/frequency, offline mode, and repeatable failure/conflict/lost-response controls.
-- [ ] Add warned seed/reset behavior and clear connection/update status in the header.
-- [ ] On reset, cancel scheduled work, invalidate old requests, clear operations/view state, and reload a matching snapshot/cursor.
-- [ ] Verify unmount/development lifecycle cleanup avoids duplicate timers and feed loops.
+- [x] Expose validated delay/failure settings, teammate activity/frequency, offline mode, and repeatable failure/conflict/lost-response controls.
+- [x] Add warned seed/reset behavior and clear connection/update status in the header.
+- [x] On reset, cancel scheduled work, invalidate old requests, clear operations/view state, and reload a matching snapshot/cursor.
+- [x] Verify unmount/development lifecycle cleanup avoids duplicate timers and feed loops.
 
 **Acceptance:** T19–T21 relevant preview, reset, and lifecycle scenarios pass. Every control is keyboard accessible. Late old-session responses cannot affect the new session.
 

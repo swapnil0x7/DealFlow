@@ -30,6 +30,10 @@ async function respond<T extends object>(action: () => T | Promise<T>): Promise<
 }
 
 export function createHandlers(simulation: Simulation) {
+  const guardControl = (request: Request) => {
+    const id = session(request)
+    if (id) simulation.assertSession(id)
+  }
   return [
     http.get('*/api/deals', () => respond(() => simulation.snapshot())),
     http.patch('*/api/deals/:id', ({ request, params }) => respond(async () => {
@@ -52,10 +56,21 @@ export function createHandlers(simulation: Simulation) {
     })),
     // Local control-plane routes remain reachable offline so the demo can reconnect or reset.
     http.get('*/api/simulation', () => respond(() => simulation.configuration())),
-    http.patch('*/api/simulation', ({ request }) => respond(async () => simulation.configure(await jsonBody(request)))),
+    http.patch('*/api/simulation', ({ request }) => respond(async () => {
+      const body = await jsonBody(request)
+      guardControl(request)
+      return simulation.configure(body)
+    })),
     http.post('*/api/simulation/faults', ({ request }) => respond(async () => {
-      simulation.forceFault((await jsonBody(request)).fault)
+      const body = await jsonBody(request)
+      guardControl(request)
+      simulation.forceFault(body.fault)
       return { ok: true }
+    })),
+    http.post('*/api/simulation/conflict', ({ request }) => respond(async () => {
+      const body = await jsonBody(request)
+      guardControl(request)
+      return simulation.conflict(body.dealId)
     })),
     http.post('*/api/simulation/reset', ({ request }) => respond(async () => simulation.reset((await jsonBody(request)).seed))),
     http.all('*/api/*', () => respond(() => { throw new ApiError('not_found', 'Unknown API endpoint.') })),

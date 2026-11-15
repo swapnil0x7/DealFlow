@@ -1,21 +1,20 @@
 import { ApiError, MAX_BATCH_SIZE } from '../api/contracts'
 import type { MoveCommand, MoveResult } from '../api/contracts'
+import type { SimulationConfiguration, SimulationFault, SimulationSettings } from '../api/simulation-contracts'
+import { STAGES } from '../domain/deal'
+import { CURRENT_OWNER_ID } from '../domain/filters'
 import { DealRepository } from './repository'
 import { seedDeals, seededRandom } from './seed'
 import type { Clock, Random } from './seed'
 
-export interface SimulationSettings {
-  minSaveDelayMs: number
-  maxSaveDelayMs: number
-  failureRate: number
-  offline: boolean
-}
+export type { SimulationSettings } from '../api/simulation-contracts'
 
 export const DEFAULT_SETTINGS: Readonly<SimulationSettings> = Object.freeze({
   minSaveDelayMs: 300, maxSaveDelayMs: 1_500, failureRate: 0.1, offline: false,
+  teammatesEnabled: false, teammateIntervalMs: 4_000, changeDeliveryPaused: false,
 })
 
-type Fault = 'save-failure' | 'read-failure' | 'lost-response'
+type Fault = SimulationFault
 type Wait = (milliseconds: number, signal: AbortSignal) => Promise<void>
 interface SimulationOptions {
   clock?: Clock
@@ -35,6 +34,12 @@ export class Simulation {
   private random: Random
   private seed = 42
   private faults: Record<Fault, number> = { 'save-failure': 0, 'read-failure': 0, 'lost-response': 0 }
+  private dealIds: string[] = []
+  private teammateIds: string[] = []
+  private teammateTimer: ReturnType<typeof setTimeout> | undefined
+  private teammateController = new AbortController()
+  private teammateGeneration = 0
+  private disposed = false
 
   constructor(options: SimulationOptions = {}) {
     this.clock = options.clock ?? Date.now
@@ -46,14 +51,19 @@ export class Simulation {
   }
 
   private newRepository(): DealRepository {
+    const data = this.createData(this.seed, this.clock)
+    this.dealIds = data.deals.map((deal) => deal.id)
+    this.teammateIds = data.owners.filter((owner) => owner.id !== CURRENT_OWNER_ID).map((owner) => owner.id)
     return new DealRepository({
-      ...this.createData(this.seed, this.clock), sessionId: crypto.randomUUID(), clock: this.clock,
+      ...data, sessionId: crypto.randomUUID(), clock: this.clock,
     })
   }
 
-  configuration(): SimulationSettings & { seed: number; sessionId: string } {
+  configuration(): SimulationConfiguration {
     return { ...this.settings, seed: this.seed, sessionId: this.repository.sessionId }
   }
+
+  assertSession(sessionId: string): void { this.repository.assertSession(sessionId) }
 
   configure(input: unknown): ReturnType<Simulation['configuration']> {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ApiError('invalid_request', 'Expected simulation settings.')
@@ -63,10 +73,13 @@ export class Simulation {
     if (!Number.isInteger(next.minSaveDelayMs) || !Number.isInteger(next.maxSaveDelayMs) ||
       next.minSaveDelayMs < 0 || next.maxSaveDelayMs > 30_000 || next.minSaveDelayMs > next.maxSaveDelayMs ||
       typeof next.failureRate !== 'number' || !Number.isFinite(next.failureRate) || next.failureRate < 0 || next.failureRate > 1 ||
-      typeof next.offline !== 'boolean') {
-      throw new ApiError('invalid_request', 'Delay must be 0–30000 ms, minimum ≤ maximum; failureRate must be 0–1; offline must be boolean.')
+      typeof next.offline !== 'boolean' || typeof next.teammatesEnabled !== 'boolean' || typeof next.changeDeliveryPaused !== 'boolean' ||
+      !Number.isInteger(next.teammateIntervalMs) || next.teammateIntervalMs < 500 || next.teammateIntervalMs > 30_000) {
+      throw new ApiError('invalid_request', 'Delay must be 0–30000 ms with minimum ≤ maximum; failureRate 0–1; teammate interval 500–30000 ms; switches must be booleans.')
     }
+    const restart = next.teammatesEnabled !== this.settings.teammatesEnabled || next.teammateIntervalMs !== this.settings.teammateIntervalMs || next.offline !== this.settings.offline
     this.settings = next
+    if (restart) { this.stopTeammates(); this.scheduleTeammate() }
     return this.configuration()
   }
 
@@ -104,7 +117,11 @@ export class Simulation {
   async changes(after: number, sessionId: string) {
     const repository = this.repository
     await this.readBarrier(repository)
-    return repository.changePage(after, sessionId)
+    const page = repository.changePage(after, sessionId)
+    if (this.settings.changeDeliveryPaused) {
+      return { sessionId, changes: [], nextCursor: after, hasMore: false, resyncRequired: false, deliveryPaused: true }
+    }
+    return page
   }
 
   async operation(mutationId: string, sessionId: string) {
@@ -113,17 +130,19 @@ export class Simulation {
     return repository.operation(mutationId, sessionId)
   }
 
-  async move(value: unknown): Promise<MoveResult> {
+  async move(value: unknown): Promise<MoveResult> { return this.save(value, this.controller.signal, true) }
+
+  private async save(value: unknown, signal: AbortSignal, userFaults: boolean): Promise<MoveResult> {
     this.assertOnline()
     const repository = this.repository
-    const signal = this.controller.signal
     const settings = { ...this.settings }
     let loseResponse = false
     const result = await repository.move(value, async () => {
-      const fail = this.consume('save-failure') || this.random() < settings.failureRate
-      loseResponse = this.consume('lost-response')
+      const fail = (userFaults && this.consume('save-failure')) || this.random() < settings.failureRate
+      loseResponse = userFaults && this.consume('lost-response')
       const milliseconds = settings.minSaveDelayMs + Math.floor(this.random() * (settings.maxSaveDelayMs - settings.minSaveDelayMs + 1))
       await this.wait(milliseconds, signal)
+      if (signal.aborted) throw new ApiError('session_expired', 'Scheduled simulation work was cancelled.')
       this.assertOnline()
       if (fail) throw new ApiError('save_failed', 'Simulated failure before commit. This command can be retried.', true)
     })
@@ -131,6 +150,42 @@ export class Simulation {
       throw new ApiError('response_lost', 'The response was lost after commit. Reconcile before retrying.', true)
     }
     return result
+  }
+
+  /** A repeatable unseen edit; it still uses the repository's commit-time version guard. */
+  async conflict(dealId: unknown): Promise<MoveResult> {
+    this.assertOnline()
+    if (typeof dealId !== 'string' || !this.teammateIds.length) throw new ApiError('invalid_request', 'Choose a valid deal and teammate.')
+    const record = this.repository.record(dealId)
+    return this.repository.move({ sessionId: this.repository.sessionId, dealId, actorId: this.teammateIds[0],
+      expectedVersion: record.version, mutationId: crypto.randomUUID(), stage: STAGES[(STAGES.indexOf(record.stage) + 1) % STAGES.length] })
+  }
+
+  private stopTeammates(): void {
+    this.teammateGeneration++
+    clearTimeout(this.teammateTimer)
+    this.teammateTimer = undefined
+    this.teammateController.abort()
+    this.teammateController = new AbortController()
+  }
+
+  private scheduleTeammate(): void {
+    if (this.disposed || !this.settings.teammatesEnabled || this.settings.offline || !this.dealIds.length || !this.teammateIds.length) return
+    const generation = this.teammateGeneration
+    this.teammateTimer = setTimeout(async () => {
+      this.teammateTimer = undefined
+      const record = this.repository.record(this.dealIds[Math.floor(this.random() * this.dealIds.length)])
+      const choices = STAGES.filter((stage) => stage !== record.stage)
+      try {
+        await this.save({ sessionId: this.repository.sessionId, dealId: record.id, expectedVersion: record.version,
+          stage: choices[Math.floor(this.random() * choices.length)], actorId: this.teammateIds[Math.floor(this.random() * this.teammateIds.length)],
+          mutationId: crypto.randomUUID() }, this.teammateController.signal, false)
+      } catch {
+        // Teammates can lose races or be interrupted too. Never bypass the guard to force a save.
+      } finally {
+        if (generation === this.teammateGeneration) this.scheduleTeammate()
+      }
+    }, this.settings.teammateIntervalMs)
   }
 
   async bulk(values: unknown): Promise<{ results: { mutationId: string; dealId: string; result: MoveResult }[] }> {
@@ -168,11 +223,14 @@ export class Simulation {
     this.faults = { 'save-failure': 0, 'read-failure': 0, 'lost-response': 0 }
     this.random = this.injectedRandom ?? seededRandom(this.seed ^ 0xa5a5a5a5)
     this.controller = new AbortController()
+    this.disposed = false
     this.repository = this.newRepository()
     return this.configuration()
   }
 
   dispose(): void {
+    this.disposed = true
+    this.stopTeammates()
     this.repository.invalidate()
     this.controller.abort()
   }

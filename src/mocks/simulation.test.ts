@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clock, command, data } from '../test/fixtures'
-import { DEFAULT_SETTINGS, Simulation } from './simulation'
+import { abortableWait, DEFAULT_SETTINGS, Simulation } from './simulation'
+
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 
 describe('adjustable simulator', () => {
   it('starts with documented defaults and independently applies seeded faults to each item', async () => {
@@ -18,6 +20,7 @@ describe('adjustable simulator', () => {
   it.each([
     { minSaveDelayMs: -1 }, { maxSaveDelayMs: 30_001 }, { minSaveDelayMs: 2_000, maxSaveDelayMs: 1_000 },
     { failureRate: 1.01 }, { failureRate: NaN }, { offline: 'yes' }, { unexpected: true },
+    { teammateIntervalMs: 499 }, { teammateIntervalMs: 30_001 }, { teammatesEnabled: 'yes' }, { changeDeliveryPaused: 1 },
   ])('rejects invalid settings atomically: %j', (settings) => {
     const runtime = new Simulation({ clock, createData: data })
     expect(() => runtime.configure(settings)).toThrow()
@@ -38,6 +41,69 @@ describe('adjustable simulator', () => {
     }
     expect(results[0]).toEqual(results[1])
     expect(delays.slice(0, 2)).toEqual(delays.slice(2))
+    runtime.dispose()
+  })
+})
+
+describe('teammate ownership and simulation lifecycle', () => {
+  it('schedules one guarded writer, uses another actor, preserves activity, and leaves user faults untouched', async () => {
+    vi.useFakeTimers()
+    const runtime = new Simulation({ clock, createData: data, wait: async () => {}, random: () => 0 })
+    runtime.configure({ teammatesEnabled: true, teammateIntervalMs: 500, minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 })
+    runtime.configure({ teammatesEnabled: true })
+    expect(vi.getTimerCount()).toBe(1)
+    runtime.forceFault('save-failure')
+    await vi.advanceTimersByTimeAsync(500)
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.cursor).toBe(1)
+    expect(snapshot.deals[0]).toMatchObject({ version: 2, stage: 'contacted', lastActivityAt: null })
+    expect((await runtime.changes(0, snapshot.sessionId)).changes[0].actorId).toBe('owner-2')
+    expect(await runtime.move(command({ sessionId: snapshot.sessionId, expectedVersion: 2, stage: 'won' }))).toMatchObject({ status: 'failed' })
+    runtime.configure({ teammatesEnabled: false })
+    expect(vi.getTimerCount()).toBe(0)
+    runtime.dispose()
+  })
+
+  it('cancels an in-flight teammate attempt on stop, offline, and reset instead of leaking writes/timers', async () => {
+    vi.useFakeTimers()
+    const runtime = new Simulation({ clock, createData: data, random: () => 0,
+      wait: (ms, signal) => ms === 20 ? Promise.resolve() : abortableWait(ms, signal) })
+    runtime.configure({ teammatesEnabled: true, teammateIntervalMs: 500, minSaveDelayMs: 1_000, maxSaveDelayMs: 1_000, failureRate: 0 })
+    await vi.advanceTimersByTimeAsync(500)
+    runtime.configure({ teammatesEnabled: false })
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect((await runtime.snapshot()).cursor).toBe(0)
+    runtime.configure({ teammatesEnabled: true })
+    await vi.advanceTimersByTimeAsync(500)
+    runtime.configure({ offline: true })
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(vi.getTimerCount()).toBe(0)
+    runtime.reset(42)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect((await runtime.snapshot()).cursor).toBe(0)
+    expect(runtime.configuration()).toMatchObject({ teammatesEnabled: false, offline: false })
+    runtime.dispose()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('pauses feed delivery without advancing the held cursor and releases the same event after resume', async () => {
+    const runtime = new Simulation({ clock, createData: data, wait: async () => {} })
+    const { sessionId } = runtime.configuration()
+    expect(await runtime.conflict('deal-1')).toMatchObject({ status: 'succeeded' })
+    runtime.configure({ changeDeliveryPaused: true })
+    expect(await runtime.changes(0, sessionId)).toMatchObject({ changes: [], nextCursor: 0, deliveryPaused: true })
+    runtime.configure({ changeDeliveryPaused: false })
+    expect(await runtime.changes(0, sessionId)).toMatchObject({ changes: [{ sequence: 1, actorId: 'owner-2' }], nextCursor: 1 })
+    runtime.dispose()
+  })
+
+  it('creates a repeatable conflict through guarded commits and rejects it while offline', async () => {
+    const runtime = new Simulation({ clock, createData: data, wait: async () => {} })
+    const { sessionId } = runtime.configuration()
+    await runtime.conflict('deal-1')
+    expect(await runtime.move(command({ sessionId }))).toMatchObject({ status: 'conflicted', latest: { version: 2 } })
+    runtime.configure({ offline: true })
+    await expect(runtime.conflict('deal-1')).rejects.toMatchObject({ issue: { code: 'offline' } })
     runtime.dispose()
   })
 })

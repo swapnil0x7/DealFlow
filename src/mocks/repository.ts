@@ -50,6 +50,13 @@ export class DealRepository {
 
   invalidate(): void { this.active = false }
 
+  record(id: string): Deal {
+    this.assertSession(this.sessionId)
+    const record = this.deals.get(id)
+    if (!record) throw new ApiError('not_found', 'Deal not found.')
+    return { ...record }
+  }
+
   snapshot(): Snapshot {
     this.assertSession(this.sessionId)
     return {
