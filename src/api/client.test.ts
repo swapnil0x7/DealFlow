@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setupServer } from 'msw/node'
 import { http, HttpResponse } from 'msw'
 import { createHandlers } from '../mocks/handlers'
@@ -6,10 +6,12 @@ import { Simulation, abortableWait } from '../mocks/simulation'
 import { clock, command, data, deferred } from '../test/fixtures'
 import { DealApi, TransportError } from './client'
 import type { MoveCommand } from './contracts'
+import { ChangeNotificationChannel } from './change-notifications'
 
-const simulation = new Simulation({ clock, createData: data, wait: async () => {} })
+const notifications = new ChangeNotificationChannel()
+const simulation = new Simulation({ clock, createData: data, wait: async () => {}, onNotification: (notice) => notifications.publish(notice) })
 const server = setupServer(...createHandlers(simulation))
-const api = () => new DealApi('http://localhost')
+const api = () => new DealApi('http://localhost', notifications)
 const move = (sessionId: string, overrides: Partial<MoveCommand> = {}) => command({ sessionId, ...overrides })
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
@@ -21,6 +23,20 @@ afterEach(() => server.resetHandlers())
 afterAll(() => { simulation.dispose(); server.close() })
 
 describe('HTTP contracts through the typed client', () => {
+  it('bridges real HTTP commits to hints without sending records, and ignores notifications after invalidation', async () => {
+    const client = api()
+    const { sessionId } = await client.load()
+    const listener = vi.fn()
+    const unsubscribe = client.subscribeChanges(listener)
+    await client.move(move(sessionId))
+    expect(listener).toHaveBeenCalledExactlyOnceWith({ kind: 'changes', sessionId, cursor: 1 })
+    expect(await client.changes(0)).toMatchObject({ nextCursor: 1, changes: [{ record: { version: 2 } }] })
+    client.invalidate()
+    simulation.configure({ changeDeliveryPaused: true })
+    expect(listener).toHaveBeenCalledTimes(1)
+    unsubscribe()
+  })
+
   it('loads a consistent snapshot/cursor, saves, skips no-ops, and emits ordered changes (T02)', async () => {
     const client = api()
     const snapshot = await client.load()

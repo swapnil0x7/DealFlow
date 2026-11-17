@@ -1,6 +1,8 @@
 import { ApiError } from './contracts'
 import type { ApiIssue, ChangePage, MoveCommand, MoveResult, OperationStatus, Snapshot } from './contracts'
 import type { SimulationConfiguration, SimulationFault, SimulationSettings } from './simulation-contracts'
+import { changeNotifications } from './change-notifications'
+import type { ChangeNotice, ChangeNotificationSource } from './change-notifications'
 
 /** A transport error does not say whether a write committed. Reconcile before assuming failure. */
 export class TransportError extends Error {
@@ -14,8 +16,17 @@ export class DealApi {
   private generation = 0
   private sessionId: string | undefined
   private readonly baseUrl: string
+  private readonly notifications: ChangeNotificationSource
 
-  constructor(baseUrl = '') { this.baseUrl = baseUrl }
+  constructor(baseUrl = '', notifications: ChangeNotificationSource = changeNotifications) {
+    this.baseUrl = baseUrl
+    this.notifications = notifications
+  }
+
+  subscribeChanges(listener: (notice: ChangeNotice) => void): () => void {
+    const generation = this.generation
+    return this.notifications.subscribe((notice) => { if (generation === this.generation) listener(notice) })
+  }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const generation = this.generation

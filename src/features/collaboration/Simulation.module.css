@@ -1,8 +1,8 @@
 .connection { font-size: 11px; line-height: 1.6; color: #365e4f; }
 .connection small { display: block; color: #596c5f; font-size: 10px; }
 .trigger, .dialog button { border: 1px solid #bacdc0; border-radius: 6px; background: white; color: #155b50; padding: 8px 12px; font-size: 12px; }
-.overlay { position: fixed; inset: 0; background: #142c295c; z-index: 20; }
-.dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 21; width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 36px); overflow: auto; border-radius: 12px; padding: 28px; background: white; box-shadow: 0 16px 60px #122d2940; color: #243d37; font-size: 12px; line-height: 1.6; }
+.overlay { position: fixed; inset: 0; background: #142c295c; z-index: 60; }
+.dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 61; width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 36px); overflow: auto; border-radius: 12px; padding: 28px; background: white; box-shadow: 0 16px 60px #122d2940; color: #243d37; font-size: 12px; line-height: 1.6; }
 .dialog h2 { margin: 0 0 12px; font-size: 22px; }
 .dialog p { margin: 12px 0; }
 .dialog fieldset { border: 1px solid #dce5dc; border-radius: 8px; padding: 16px; margin: 16px 0; }

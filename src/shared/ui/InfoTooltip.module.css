@@ -1,0 +1,4 @@
+.trigger { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #526b5e; font-size: 11px; line-height: 1.4; white-space: nowrap; }
+.trigger:hover { background: #edf4ef; color: #194e41; }
+.trigger svg { width: 15px; height: 15px; flex-shrink: 0; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.content { position: fixed; z-index: 85; visibility: hidden; width: min(350px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border: 1px solid #dce5de; border-radius: 12px; background: #fff; color: #344e43; box-shadow: 0 12px 40px #193e351c, 0 2px 8px #193e350a; font-size: 12px; line-height: 1.6; }

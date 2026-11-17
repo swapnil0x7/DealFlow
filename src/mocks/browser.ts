@@ -1,8 +1,9 @@
 import { setupWorker } from 'msw/browser'
 import { createHandlers } from './handlers'
 import { Simulation } from './simulation'
+import { changeNotifications } from '../api/change-notifications'
 
-const simulation = new Simulation()
+const simulation = new Simulation({ onNotification: (notice) => changeNotifications.publish(notice) })
 const worker = setupWorker(...createHandlers(simulation))
 
 // The submitted app is a browser-only simulator, so MSW intentionally runs in built previews too.

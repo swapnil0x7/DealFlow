@@ -16,6 +16,7 @@ interface RepositoryOptions {
   clock?: Clock
   maxMutations?: number
   maxChanges?: number
+  onChange?: (sessionId: string, cursor: number) => void
 }
 
 export class DealRepository {
@@ -29,6 +30,7 @@ export class DealRepository {
   private readonly maxChanges: number
   private sequence = 0
   private active = true
+  private readonly onChange: RepositoryOptions['onChange']
 
   constructor(options: RepositoryOptions) {
     this.sessionId = options.sessionId
@@ -37,6 +39,7 @@ export class DealRepository {
     this.clock = options.clock ?? Date.now
     this.maxMutations = options.maxMutations ?? 100_000
     this.maxChanges = options.maxChanges ?? 10_000
+    this.onChange = options.onChange
     if (![this.maxChanges, this.maxMutations].every((limit) => Number.isSafeInteger(limit) && limit >= 1)) {
       throw new RangeError('Repository retention limits must be positive safe integers.')
     }
@@ -117,6 +120,9 @@ export class DealRepository {
           result = { status: changed ? 'succeeded' : 'skipped', receipt }
         }
         currentEntry.result = result
+        if (result.status === 'succeeded') {
+          try { this.onChange?.(this.sessionId, this.sequence) } catch { /* Delivery cannot invalidate a durable commit/receipt. */ }
+        }
         return result
       } catch (error) {
         if (error instanceof ApiError && error.issue.code === 'save_failed') {

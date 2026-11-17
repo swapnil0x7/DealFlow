@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS } from '../../mocks/simulation'
 import { data, deal } from '../../test/fixtures'
 import { ConfirmedReadModel } from './read-model'
 import { ChangeFeed } from './feed'
+import { ChangeNotificationChannel } from '../../api/change-notifications'
 
 function pending<T>() {
   let resolve!: (value: T) => void
@@ -16,19 +17,125 @@ const event = (sequence: number, version = sequence + 1) => ({ sequence, mutatio
 
 function setup(extra: { onResync?: (snapshot: Snapshot) => void; timeoutMs?: number } = {}) {
   const model = new ConfirmedReadModel(data().deals)
+  const channel = new ChangeNotificationChannel()
   const api = {
     changes: vi.fn(async (after: number, signal?: AbortSignal): Promise<ChangePage> => { void signal; return emptyPage(after) }),
     resync: vi.fn(async (): Promise<Snapshot> => ({ sessionId: 'session-1', ...data(), cursor: 7 })),
     simulation: vi.fn(async () => ({ ...DEFAULT_SETTINGS, seed: 42, sessionId: 'session-1' })),
+    subscribeChanges: vi.fn((listener: Parameters<ChangeNotificationChannel['subscribe']>[0]) => channel.subscribe(listener)),
   }
   const operations = { confirmChange: vi.fn(), reconcileOutstanding: vi.fn(async () => {}), expireSession: vi.fn() }
   const feed = new ChangeFeed({ api, operations, model, sessionId: 'session-1', cursor: 0, ...extra })
-  return { feed, model, api, operations }
+  return { feed, model, api, operations, notify: channel.publish.bind(channel) }
 }
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 
-describe('ordered single-flight change feed', () => {
+describe('notification-driven single-flight change feed', () => {
+  it('performs initial catch-up then makes no idle requests and leaves no scheduled timer', async () => {
+    const { feed, api } = setup()
+    feed.start()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+    feed.dispose()
+  })
+
+  it('coalesces a thousand commit hints into paged HTTP reads and ignores already applied hints', async () => {
+    const { feed, api, notify } = setup()
+    feed.start()
+    await vi.advanceTimersByTimeAsync(1)
+    const first = Array.from({ length: 500 }, (_, index) => event(index + 1))
+    const second = Array.from({ length: 500 }, (_, index) => event(index + 501))
+    api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: first, nextCursor: 500, hasMore: true })
+    api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: second, nextCursor: 1_000 })
+    for (let cursor = 1; cursor <= 1_000; cursor++) notify({ kind: 'changes', sessionId: 'session-1', cursor })
+    await vi.advanceTimersByTimeAsync(49)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(api.changes).toHaveBeenCalledTimes(3)
+    expect(feed.store.getState()).toMatchObject({ cursor: 1_000, received: 1_000 })
+    notify({ kind: 'changes', sessionId: 'session-1', cursor: 1_000 })
+    notify({ kind: 'changes', sessionId: 'old-session', cursor: 9_999 })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(api.changes).toHaveBeenCalledTimes(3)
+    feed.dispose()
+  })
+
+  it('retains notifications arriving during a request and catches up once without overlapping', async () => {
+    const { feed, api, notify } = setup()
+    const gate = pending<ChangePage>()
+    api.changes.mockReturnValueOnce(gate.promise)
+    api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: [event(2)], nextCursor: 2 })
+    feed.start()
+    await vi.advanceTimersByTimeAsync(1)
+    notify({ kind: 'changes', sessionId: 'session-1', cursor: 2 })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    gate.resolve({ ...emptyPage(), changes: [event(1)], nextCursor: 1 })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(api.changes).toHaveBeenCalledTimes(2)
+    expect(feed.store.getState().cursor).toBe(2)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(api.changes).toHaveBeenCalledTimes(2)
+    feed.dispose()
+  })
+
+  it('backs off failed reads without notification floods bypassing retries, then idles after recovery', async () => {
+    const { feed, api, notify } = setup()
+    api.changes.mockRejectedValueOnce(new TransportError('first failure'))
+    api.changes.mockRejectedValueOnce(new TransportError('second failure'))
+    feed.start()
+    await vi.advanceTimersByTimeAsync(1)
+    for (let index = 0; index < 50; index++) notify({ kind: 'changes', sessionId: 'session-1', cursor: 1 })
+    await vi.advanceTimersByTimeAsync(998)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(api.changes).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1_999)
+    expect(api.changes).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(api.changes).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(api.changes).toHaveBeenCalledTimes(3)
+    feed.dispose()
+  })
+
+  it('subscribes once across repeated start, unsubscribes on stop, and catches missed changes on restart', async () => {
+    const { feed, api, notify } = setup()
+    feed.start(); feed.start()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(api.subscribeChanges).toHaveBeenCalledTimes(1)
+    feed.stop()
+    notify({ kind: 'changes', sessionId: 'session-1', cursor: 1 })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: [event(1)], nextCursor: 1 })
+    feed.start()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(feed.store.getState().cursor).toBe(1)
+    expect(api.subscribeChanges).toHaveBeenCalledTimes(2)
+    feed.dispose()
+    notify({ kind: 'configuration', sessionId: 'new-session' })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(api.changes).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('expires immediately on a reset notification without reading or merging replacement-session data', async () => {
+    const { feed, api, operations, notify } = setup()
+    feed.start()
+    await vi.advanceTimersByTimeAsync(1)
+    notify({ kind: 'reset', sessionId: 'new-session' })
+    expect(feed.store.getState().status).toBe('expired')
+    expect(operations.expireSession).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+    feed.dispose()
+  })
   it('coalesces repeated starts/focus notifications without overlapping the current request', async () => {
     const { feed, api } = setup()
     const gate = pending<ChangePage>()
@@ -39,7 +146,7 @@ describe('ordered single-flight change feed', () => {
     await vi.advanceTimersByTimeAsync(5_000)
     expect(api.changes).toHaveBeenCalledTimes(1)
     gate.resolve(emptyPage())
-    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(50)
     expect(api.changes).toHaveBeenCalledTimes(2)
     feed.dispose()
     expect(vi.getTimerCount()).toBe(0)
@@ -131,13 +238,17 @@ describe('ordered single-flight change feed', () => {
   })
 
   it('reports paused delivery without advancing the cursor, then receives the held events', async () => {
-    const { feed, api } = setup()
+    const { feed, api, notify } = setup()
     api.changes.mockResolvedValueOnce({ ...emptyPage(), deliveryPaused: true })
     api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: [event(1)], nextCursor: 1 })
     feed.start()
-    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(1)
     expect(feed.store.getState()).toMatchObject({ status: 'paused', cursor: 0 })
-    await vi.advanceTimersByTimeAsync(1_000)
+    notify({ kind: 'changes', sessionId: 'session-1', cursor: 1 })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(api.changes).toHaveBeenCalledTimes(1)
+    notify({ kind: 'configuration', sessionId: 'session-1' })
+    await vi.advanceTimersByTimeAsync(50)
     expect(feed.store.getState()).toMatchObject({ status: 'live', cursor: 1 })
     feed.dispose()
   })
@@ -147,7 +258,7 @@ describe('ordered single-flight change feed', () => {
     api.changes.mockRejectedValueOnce(new TransportError('interrupted'))
     api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: [event(1)], nextCursor: 1 })
     feed.start()
-    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(1)
     expect(feed.store.getState()).toMatchObject({ status: 'reconnecting', cursor: 0 })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(feed.store.getState()).toMatchObject({ status: 'live', cursor: 1 })
@@ -174,7 +285,7 @@ describe('ordered single-flight change feed', () => {
     operations.confirmChange.mockImplementationOnce(() => { throw new Error('injected processing failure') })
     api.changes.mockResolvedValue({ ...emptyPage(), changes: [event(1)], nextCursor: 1 })
     feed.start()
-    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(1)
     expect(feed.store.getState().cursor).toBe(0)
     await vi.advanceTimersByTimeAsync(1_000)
     expect(feed.store.getState().cursor).toBe(1)
@@ -229,7 +340,7 @@ describe('ordered single-flight change feed', () => {
     const gate = pending<ChangePage>()
     api.changes.mockReturnValueOnce(gate.promise)
     feed.start()
-    await vi.advanceTimersByTimeAsync(1_050)
+    await vi.advanceTimersByTimeAsync(50)
     expect(feed.store.getState().status).toBe('reconnecting')
     expect(api.changes.mock.calls[0][1]?.aborted).toBe(true)
     await vi.advanceTimersByTimeAsync(1_000)

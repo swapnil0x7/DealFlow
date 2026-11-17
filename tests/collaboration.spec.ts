@@ -3,6 +3,10 @@ import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import type { Snapshot } from '../src/api/contracts'
 import type { Stage } from '../src/domain/deal'
+import { STAGE_LABELS } from '../src/domain/deal'
+import { selectDropdown } from './helpers/dropdown'
+import { chooseStage } from './helpers/stage'
+import { openChanges, closeChanges } from './helpers/changes'
 
 async function setup(page: Page) {
   await page.goto('/')
@@ -30,9 +34,7 @@ async function remote(page: Page, snapshot: Snapshot, stage: Stage, version: num
 }
 
 async function chooseContacted(page: Page) {
-  await page.keyboard.press('Home')
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
+  await chooseStage(page, 'contacted')
 }
 
 test('live changes preserve focus and filtered row identity, pause while hidden, and catch up without full reloads', async ({ page }) => {
@@ -45,12 +47,12 @@ test('live changes preserve focus and filtered row identity, pause while hidden,
     if (path === '/api/changes') polls++
   })
   const { record, snapshot, row, stage } = await setup(page)
-  await page.getByRole('combobox', { name: 'Stage', exact: true }).selectOption(record.stage)
+  await selectDropdown(page.getByRole('combobox', { name: 'Stage', exact: true }), STAGE_LABELS[record.stage])
   await stage.focus()
   const originalIndex = await row.getAttribute('row-index')
   const loads = fullLoads
   await remote(page, snapshot, 'contacted', record.version)
-  await expect(stage).toHaveText('Contacted')
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Contacted')
   await expect(stage).toBeFocused()
   await expect(row).toHaveAttribute('row-index', originalIndex!)
   await expect(row.getByText('No longer matches filters')).toBeVisible()
@@ -64,12 +66,12 @@ test('live changes preserve focus and filtered row identity, pause while hidden,
   await remote(page, snapshot, 'won', record.version + 1)
   await page.clock.fastForward(2_000)
   expect(polls).toBe(pausedPolls)
-  await expect(stage).toHaveText('Contacted')
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Contacted')
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false })
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  await expect(stage).toHaveText('Won')
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
   await expect(stage).toBeFocused()
   expect(fullLoads).toBe(loads)
   await page.getByRole('button', { name: 'Refresh list', exact: true }).click()
@@ -95,7 +97,7 @@ test('a teammate update during editing never silently replaces the captured vers
   await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
   await expect(stage.locator('[role="combobox"]')).toHaveCount(0)
-  await expect(stage).toHaveText('Won')
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
   await expect(page.getByTestId('operation-result')).toHaveCount(0)
   await stage.focus()
   await page.keyboard.press('Enter')
@@ -103,7 +105,7 @@ test('a teammate update during editing never silently replaces the captured vers
   await remote(page, snapshot, 'negotiation', record.version + 1)
   await expect(page.getByText('2 updates received', { exact: true })).toBeVisible()
   await chooseContacted(page)
-  await expect(page.getByTestId('operation-result').first()).toHaveAttribute('data-state', 'conflicted')
+  await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'conflicted')
   expect(commands).toHaveLength(1)
   expect(commands[0].expectedVersion).toBe(record.version + 1)
   await expect(stage).toContainText('Negotiation')
@@ -129,20 +131,20 @@ test('a matching feed event confirms a save before a delayed HTTP failure withou
   await page.keyboard.press('Enter')
   await expect(page.getByRole('listbox')).toBeVisible()
   await chooseContacted(page)
-  await expect(page.getByTestId('operation-result').first()).toHaveAttribute('data-state', 'succeeded')
+  await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'succeeded')
   expect(await page.evaluate(() => document.documentElement.dataset.lateSaveError)).toBeUndefined()
   await remote(page, snapshot, 'won', record.version + 1)
-  await expect(stage).toHaveText('Won')
-  await expect(page.getByRole('button', { name: 'Undo move', exact: true })).toHaveCount(0)
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
+  await expect(page.getByRole('button', { name: /^Undo move for/ })).toHaveCount(0)
   await page.evaluate(() => (window as Window & { releaseSave?: () => void }).releaseSave?.())
   await expect(page.locator('html')).toHaveAttribute('data-late-save-error', 'delivered')
-  await expect(page.getByTestId('operation-result').first()).toHaveAttribute('data-state', 'succeeded')
-  await expect(stage).toHaveText('Won')
+  await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'succeeded')
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
   const saved = await page.evaluate(async (id) => (await (await fetch('/api/deals')).json() as Snapshot).deals.find((item) => item.id === id), record.id)
   expect(saved?.version).toBe(record.version + 2)
 })
 
-test('simulation controls generate teammate writes, pause offline polling, reconnect, and work by keyboard', async ({ page }, testInfo) => {
+test('simulation controls generate teammate writes, pause offline feed reads, reconnect, and work by keyboard', async ({ page }, testInfo) => {
   await page.clock.install()
   let fullLoads = 0
   let polls = 0
@@ -189,7 +191,7 @@ test('simulation controls generate teammate writes, pause offline polling, recon
 
 test('the unseen-edit scenario targets the last focused deal and leads to explicit conflict review', async ({ page }) => {
   const { stage, record } = await setup(page)
-  await stage.click()
+  await stage.locator('..').locator('[col-id="company"]').click()
   await page.getByRole('button', { name: 'Simulation', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Simulation controls' })
   await expect(dialog).toContainText(record.companyName)
@@ -199,10 +201,10 @@ test('the unseen-edit scenario targets the last focused deal and leads to explic
   await dialog.getByRole('button', { name: 'Close simulation' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Simulation', exact: true })).toBeFocused()
-  await stage.click(); await page.keyboard.press('Enter')
+  await stage.getByTestId('deal-stage').click()
   await expect(page.getByRole('listbox')).toBeVisible()
   await chooseContacted(page)
-  await expect(page.getByTestId('operation-result').first()).toHaveAttribute('data-state', 'conflicted')
+  await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'conflicted')
   await expect(page.getByRole('button', { name: 'Review conflict' })).toBeVisible()
 })
 
@@ -215,14 +217,14 @@ test('warned reset cancels old saves and clears filters, results, focus target, 
   await stage.focus(); await page.keyboard.press('Enter')
   await expect(page.getByRole('listbox')).toBeVisible()
   await chooseContacted(page)
-  await expect(page.getByTestId('operation-result').first()).toHaveAttribute('data-state', 'saving')
+  await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'saving')
   await page.getByRole('button', { name: 'Simulation', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Simulation controls' })
   await dialog.getByRole('button', { name: 'Reset demo…', exact: true }).click()
   await expect(dialog.getByText(/Reset clears saved changes/)).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Cancel reset' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Cancel reset' }).click()
-  await expect(page.getByTestId('operation-result')).toHaveCount(1)
+  expect((await page.evaluate(async () => await (await fetch('/api/deals')).json() as Snapshot)).sessionId).toBe(snapshot.sessionId)
   await dialog.getByRole('button', { name: 'Reset demo…', exact: true }).click()
   await dialog.getByRole('button', { name: 'Confirm reset', exact: true }).click()
   await expect(page.getByRole('searchbox')).toHaveValue('')
@@ -232,6 +234,9 @@ test('warned reset cancels old saves and clears filters, results, focus target, 
   const next = await page.evaluate(async () => await (await fetch('/api/deals')).json() as Snapshot)
   expect(next.sessionId).not.toBe(snapshot.sessionId)
   expect(next.deals.find((item) => item.id === record.id)).toMatchObject({ stage: record.stage, version: 1 })
+  await openChanges(page)
+  await expect(page.getByTestId('operation-result')).toHaveCount(0)
+  await closeChanges(page)
   await page.getByRole('button', { name: 'Simulation', exact: true }).click()
   await expect(dialog).toContainText('Focus a deal in the table first')
   await expect(dialog.getByRole('checkbox', { name: 'Simulate teammate activity' })).not.toBeChecked()
@@ -268,7 +273,7 @@ test('an expired feed cursor resyncs once and preserves a version captured by an
   await expect.poll(() => fullLoads).toBe(initialLoads + 1)
   await expect(page.getByTestId('connection-status')).toHaveText('Live updates connected')
   await chooseContacted(page)
-  await expect(page.getByTestId('operation-result').first()).toHaveAttribute('data-state', 'conflicted')
+  await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'conflicted')
   expect(commands[0].expectedVersion).toBe(record.version)
   expect(fullLoads).toBe(initialLoads + 1)
 })
@@ -301,7 +306,7 @@ test('full-volume live updates preserve off-screen navigation and scroll until a
     })).json()
     if (result.status !== 'succeeded') throw new Error('Teammate edit failed')
   }, id)
-  await expect(lastRow.locator('[col-id="stage"]')).toHaveText('New Lead')
+  await expect(lastRow.getByTestId('deal-stage')).toHaveText('New Lead')
   await expect(cell).toBeFocused()
   expect(await scrollPositions()).toEqual(before)
   await page.getByRole('button', { name: 'Refresh list', exact: true }).click()
@@ -309,4 +314,85 @@ test('full-volume live updates preserve off-screen navigation and scroll until a
   await expect(moved.locator('[col-id="status"]')).toBeFocused()
   await expect(moved).toBeInViewport()
   expect(await moved.getAttribute('row-index')).not.toBe('49999')
+})
+
+test('simulation form waits for a delayed settings read so it cannot overwrite in-progress edits', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window)
+    window.fetch = async (input, init) => {
+      const state = window as unknown as { holdSimulationRead?: boolean; releaseSimulationRead?: () => void }
+      const path = new URL(input instanceof Request ? input.url : String(input), location.href).pathname
+      if (state.holdSimulationRead && path === '/api/simulation' && (init?.method ?? 'GET') === 'GET') {
+        state.holdSimulationRead = false
+        await new Promise<void>((resolve) => { state.releaseSimulationRead = resolve })
+      }
+      return original(input, init)
+    }
+  })
+  await page.goto('/')
+  await expect(page.getByRole('grid', { name: 'Sales pipeline deals' })).toBeVisible()
+  // Keep the initial feed out of this controlled settings-read scenario.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    ;(window as unknown as { holdSimulationRead: boolean }).holdSimulationRead = true
+  })
+  await page.getByRole('button', { name: 'Simulation', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Simulation controls' })
+  await expect(dialog.getByRole('status')).toHaveText('Loading simulation settings…')
+  await expect(dialog.getByLabel('Minimum save delay (ms)')).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Apply settings' })).toBeDisabled()
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releaseSimulationRead?: () => void }).releaseSimulationRead)).toBe('function')
+  await page.evaluate(() => (window as unknown as { releaseSimulationRead: () => void }).releaseSimulationRead())
+  await expect(dialog.getByLabel('Minimum save delay (ms)')).toBeEnabled()
+  await dialog.getByLabel('Minimum save delay (ms)').fill('0')
+  await dialog.getByLabel('Maximum save delay (ms)').fill('0')
+  await dialog.getByRole('button', { name: 'Apply settings' }).click()
+  await expect(dialog.getByRole('status')).toHaveText('Simulation settings applied.')
+  const settings = await page.evaluate(async () => (await fetch('/api/simulation')).json())
+  expect(settings).toMatchObject({ minSaveDelayMs: 0, maxSaveDelayMs: 0 })
+})
+
+test('idle workspaces make no recurring API reads; a committed change triggers incremental catch-up then returns to idle', async ({ page }) => {
+  await page.clock.install()
+  let changes = 0
+  let reads = 0
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname
+    if (path === '/api/changes') changes++
+    if (request.method() === 'GET' && path.startsWith('/api/')) reads++
+  })
+  const { snapshot, stage, record } = await setup(page)
+  await expect(page.getByTestId('connection-status')).toHaveText('Live updates connected')
+  const initial = { changes, reads }
+  await page.clock.fastForward(60_000)
+  expect({ changes, reads }).toEqual(initial)
+  await remote(page, snapshot, 'won', record.version)
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
+  expect(changes).toBe(initial.changes + 1)
+  const caughtUp = { changes, reads }
+  await page.clock.fastForward(60_000)
+  expect({ changes, reads }).toEqual(caughtUp)
+})
+
+test('delivery pause stops data reads and API configuration notifications resume catch-up without UI polling', async ({ page }) => {
+  await page.clock.install()
+  let changes = 0
+  page.on('request', (request) => { if (new URL(request.url()).pathname === '/api/changes') changes++ })
+  const { snapshot, stage, record } = await setup(page)
+  await page.evaluate(async () => {
+    await fetch('/api/simulation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changeDeliveryPaused: true }) })
+  })
+  await expect(page.getByTestId('connection-status')).toHaveText('Live updates paused')
+  const paused = changes
+  await remote(page, snapshot, 'won', record.version)
+  await page.clock.fastForward(10_000)
+  expect(changes).toBe(paused)
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Lost')
+  await page.evaluate(async () => {
+    await fetch('/api/simulation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changeDeliveryPaused: false }) })
+  })
+  await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
+  await expect(page.getByTestId('connection-status')).toHaveText('Live updates connected')
+  expect(changes).toBe(paused + 1)
 })

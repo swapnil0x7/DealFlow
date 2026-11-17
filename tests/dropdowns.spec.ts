@@ -1,0 +1,75 @@
+import { expect, test } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
+import { selectDropdown } from './helpers/dropdown'
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('grid', { name: 'Sales pipeline deals' })).toBeVisible()
+})
+
+test('keyboard selection, typeahead, cancellation, and returning to All owners work', async ({ page }) => {
+  const owner = page.getByRole('combobox', { name: 'Owner', exact: true })
+  await owner.focus()
+  await page.keyboard.press('ArrowDown')
+  const menu = page.getByRole('listbox')
+  await expect(menu).toBeVisible()
+  await page.keyboard.type('Riya')
+  await expect(menu.getByRole('option', { name: 'Riya Kulkarni' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(owner).toContainText('Riya Kulkarni')
+  await expect(owner).toBeFocused()
+  await expect(page.getByTestId('matching-count')).toContainText('2,500 matching deals')
+  await page.keyboard.press('Space')
+  await expect(menu.getByRole('option', { name: 'Riya Kulkarni' })).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Home')
+  await expect(menu.getByRole('option', { name: 'All owners' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(owner).toContainText('Riya Kulkarni')
+  await expect(owner).toBeFocused()
+  await selectDropdown(owner, 'All owners')
+  await expect(owner).toContainText('All owners')
+  await expect(page.getByTestId('matching-count')).toContainText('50,000 matching deals')
+})
+
+test('scrolling menus stay inside a narrow viewport, dismiss outside, and pass axe while open', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const owner = page.getByRole('combobox', { name: 'Owner', exact: true })
+  await owner.click()
+  const menu = page.getByRole('listbox')
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('End')
+  await expect(menu.getByRole('option', { name: 'Riya Kulkarni' })).toBeInViewport()
+  const box = await menu.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+  expect(box!.y + box!.height).toBeLessThanOrEqual(844)
+  // Radix traps focus and hides the surrounding page while the popup is open.
+  // Audit the active widget here, then audit the whole restored page after dismissal.
+  expect((await new AxeBuilder({ page }).include('[role="listbox"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([])
+  await page.keyboard.press('Tab')
+  await expect(menu.getByRole('option', { name: 'Riya Kulkarni' })).toBeFocused()
+  await page.screenshot({ path: testInfo.outputPath('dropdown-narrow.png') })
+  // The first outside click dismisses the menu without activating the page beneath it.
+  const title = await page.locator('h1').boundingBox()
+  expect(title).not.toBeNull()
+  await page.mouse.click(title!.x + title!.width / 2, title!.y + title!.height / 2)
+  await expect(menu).toHaveCount(0)
+  await expect(owner).toContainText('All owners')
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+})
+
+test('filters and the reusable bulk target dropdown remain independent', async ({ page }, testInfo) => {
+  await page.getByRole('searchbox').fill('Atlas')
+  await page.getByRole('button', { name: 'Select all matching', exact: true }).click()
+  const target = page.getByRole('combobox', { name: 'Bulk target stage' })
+  await selectDropdown(target, 'Won')
+  await expect(target).toContainText('Won')
+  await expect(page.getByRole('combobox', { name: 'Stage', exact: true })).toContainText('All stages')
+  await page.getByRole('button', { name: 'Review bulk move', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('Won')
+  await page.keyboard.press('Escape')
+  await page.getByRole('combobox', { name: 'Owner', exact: true }).click()
+  await expect(page.getByRole('listbox')).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('dropdown-desktop.png') })
+})

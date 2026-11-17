@@ -22,6 +22,55 @@ function setup(options: { timeoutMs?: number; historyLimit?: number } = {}) {
 afterEach(() => vi.useRealTimers())
 
 describe('single-deal command lifecycle', () => {
+  it('keeps an explicitly reviewed latest stage without another write and retains the original conflict', async () => {
+    const { repository, model, api, service, item } = setup()
+    await repository.move({ sessionId: 'session-1', mutationId: 'teammate', actorId: 'owner-2', dealId: deal.id, expectedVersion: 1, stage: 'won' })
+    service.move(model.get(deal.id)!, 'contacted')
+    await vi.waitFor(() => expect(item().status).toBe('conflicted'))
+    const latest = model.get(deal.id)!
+    expect(service.keepLatest('op-1', deal)).toBe(false)
+    expect(service.keepLatest('op-1', latest)).toBe(true)
+    expect(item()).toMatchObject({ status: 'conflicted', keptVersion: 2 })
+    expect(service.activity.get(deal.id)?.resolution).toBe('kept')
+    expect(service.review('op-1', latest)).toBeNull()
+    expect(service.keepLatest('op-1', latest)).toBe(false)
+    expect(api.move).toHaveBeenCalledTimes(1)
+    expect(repository.snapshot().deals[0].stage).toBe('won')
+    service.dispose()
+  })
+
+  it('rejects keeping a review after another known version or after session expiry', async () => {
+    const { repository, model, service, item } = setup()
+    await repository.move({ sessionId: 'session-1', mutationId: 'teammate', actorId: 'owner-2', dealId: deal.id, expectedVersion: 1, stage: 'won' })
+    service.move(model.get(deal.id)!, 'contacted')
+    await vi.waitFor(() => expect(item().status).toBe('conflicted'))
+    const reviewed = model.get(deal.id)!
+    model.apply([{ ...reviewed, stage: 'lost', version: 3 }])
+    expect(service.keepLatest('op-1', reviewed)).toBe(false)
+    service.expireSession()
+    expect(service.keepLatest('op-1', model.get(deal.id)!)).toBe(false)
+    expect(item().keptVersion).toBeUndefined()
+    service.dispose()
+  })
+  it('shows an older command’s explicit retry as current activity after a later local success', async () => {
+    const { model, repository, api, service, item } = setup()
+    api.move.mockImplementationOnce((command) => repository.move(command, async () => { throw new ApiError('save_failed', 'Retry later', true) }))
+    service.move(model.get(deal.id)!, 'contacted')
+    await vi.waitFor(() => expect(item().status).toBe('failed'))
+    service.move(model.get(deal.id)!, 'won')
+    await vi.waitFor(() => expect(item('op-2').status).toBe('succeeded'))
+    const gate = deferred()
+    api.move.mockImplementationOnce(async (command) => { await gate.promise; return repository.move(command) })
+    const retry = service.retry('op-1')
+    expect(service.activity.get(deal.id)).toMatchObject({ id: 'op-1', status: 'saving', stage: 'contacted' })
+    expect(service.isBlocked(deal.id)).toBe(true)
+    gate.resolve()
+    await retry
+    expect(service.activity.get(deal.id)).toMatchObject({ id: 'op-1', status: 'conflicted' })
+    expect(model.get(deal.id)?.stage).toBe('won')
+    service.dispose()
+  })
+
   it('retains confirmed data while saving, blocks overlap on the same deal, and allows other deals', async () => {
     const { repository, model, api, service, item } = setup()
     const gate = deferred()

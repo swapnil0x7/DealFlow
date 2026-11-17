@@ -13,12 +13,17 @@ import {
 } from "../../domain/filters";
 import type { PipelineFilters, WorkView } from "../../domain/filters";
 import { formatCount } from "../../shared/format";
+import { Dropdown } from "../../shared/ui/Dropdown";
 import type { WorkspaceSession } from "../collaboration/session";
 import { ConnectionStatus } from "../collaboration/ConnectionStatus";
 import { SimulationPanel } from "../collaboration/SimulationPanel";
 import { PipelineTable } from "./PipelineTable";
+import { AttentionHelp } from "./AttentionHelp";
 import { PipelineProjection } from "./projection";
-import { ResultsPanel } from "../operations/ResultsPanel";
+import { usePriorityClock } from "./use-priority-clock";
+import { ChangesProvider } from "../operations/ChangesProvider";
+import { ChangesButton } from "../operations/ChangesButton";
+import { ChangesNotice } from "../operations/ChangesNotice";
 import styles from "./Pipeline.module.css";
 
 const VIEWS: { id: WorkView; label: string }[] = [
@@ -27,41 +32,80 @@ const VIEWS: { id: WorkView; label: string }[] = [
   { id: "attention", label: "Needs attention" },
 ];
 
-export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSession; onReset: (seed: number) => void }) {
-  const { model, operations, feed } = session;
+export function PipelineWorkspace({
+  session,
+  onReset,
+}: {
+  session: WorkspaceSession;
+  onReset: (seed: number) => void;
+}) {
+  return (
+    <ChangesProvider
+      operations={session.operations}
+      bulk={session.bulk}
+      model={session.model}
+    >
+      <WorkspaceContent session={session} onReset={onReset} />
+    </ChangesProvider>
+  );
+}
+
+function WorkspaceContent({
+  session,
+  onReset,
+}: {
+  session: WorkspaceSession;
+  onReset: (seed: number) => void;
+}) {
+  const { model, operations, feed, selection, bulk } = session;
   const owners = session.snapshot.owners;
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
   useEffect(() => {
     const visibility = () => feed.setVisible(!document.hidden);
-    const online = () => { feed.setNetworkOnline(navigator.onLine); };
+    const online = () => {
+      feed.setNetworkOnline(navigator.onLine);
+    };
     const focus = () => feed.wake();
     visibility();
     online();
     const stop = feed.start();
-    document.addEventListener('visibilitychange', visibility);
-    window.addEventListener('online', online);
-    window.addEventListener('offline', online);
-    window.addEventListener('focus', focus);
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("online", online);
+    window.addEventListener("offline", online);
+    window.addEventListener("focus", focus);
     return () => {
-      document.removeEventListener('visibilitychange', visibility);
-      window.removeEventListener('online', online);
-      window.removeEventListener('offline', online);
-      window.removeEventListener('focus', focus);
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", online);
+      window.removeEventListener("focus", focus);
       stop();
     };
   }, [feed]);
   const [filters, setFilters] = useState<PipelineFilters>(DEFAULT_FILTERS);
   const [search, setSearch] = useState("");
-  const [asOf, setAsOf] = useState(Date.now);
-  const [priorityRefreshPending, setPriorityRefreshPending] = useState(false);
-  const [listStale, setListStale] = useState(false);
+  const previousFilters = useRef(filters);
+  useEffect(() => {
+    const previous = previousFilters.current;
+    if (
+      previous.view !== filters.view ||
+      previous.search !== filters.search ||
+      previous.ownerId !== filters.ownerId ||
+      previous.stage !== filters.stage
+    )
+      selection.clear("Filters changed. Selection cleared.");
+    previousFilters.current = filters;
+  }, [filters, selection]);
+  const [openedAt] = useState(Date.now);
+  const [listRefreshReason, setListRefreshReason] = useState<
+    "records" | "time" | null
+  >(null);
+  const listStale = listRefreshReason !== null;
   const [matching, setMatching] = useState(model.size);
   const [sortDescription, setSortDescription] = useState("Company ascending");
-  const workspaceRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const projection = useMemo(
-    () => new PipelineProjection(model.all(), owners, asOf),
-    [model, owners, asOf],
+    () => new PipelineProjection(model.all(), owners, openedAt),
+    [model, owners, openedAt],
   );
   const counts = useSyncExternalStore(
     projection.subscribeCounts,
@@ -71,10 +115,10 @@ export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSess
     () => model.subscribe((records) => projection.apply(records)),
     [model, projection],
   );
+  usePriorityClock(projection);
   const currentOwner = owners.find((owner) => owner.id === CURRENT_OWNER_ID);
   const searching = normalizeSearch(search) !== filters.search;
   const hasFilters = Boolean(search || filters.ownerId || filters.stage);
-  const activeView = VIEWS.find((view) => view.id === filters.view)!;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -86,29 +130,14 @@ export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSess
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      // Avoid reordering time-sensitive priorities while the salesperson is using the workspace.
-      if (
-        document.hidden ||
-        workspaceRef.current?.contains(document.activeElement)
-      )
-        setPriorityRefreshPending(true);
-      else {
-        setAsOf(Date.now());
-        setPriorityRefreshPending(false);
-      }
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   function clearFilters() {
+    selection.clear("Filters changed. Selection cleared.");
     setSearch("");
     setFilters((current) => ({ ...DEFAULT_FILTERS, view: current.view }));
   }
 
   return (
-    <div ref={workspaceRef} className={styles.workspace}>
+    <div data-pipeline-workspace className={styles.workspace}>
       <a className={styles.skipLink} href="#pipeline-workspace">
         Skip to pipeline
       </a>
@@ -124,18 +153,24 @@ export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSess
         </div>
         <div className={styles.headerControls}>
           <ConnectionStatus feed={feed} />
-          <SimulationPanel session={session} activeDealId={activeDealId} onReset={onReset} />
-        <div className={styles.identity}>
-          <span className={styles.avatar} aria-hidden="true">
-            AS
-          </span>
-          <span>
-            {currentOwner?.name ?? "Your workspace"}
-            <small>My workspace</small>
-          </span>
-        </div>
+          <ChangesButton />
+          <SimulationPanel
+            session={session}
+            activeDealId={activeDealId}
+            onReset={onReset}
+          />
+          <div className={styles.identity}>
+            <span className={styles.avatar} aria-hidden="true">
+              AS
+            </span>
+            <span>
+              {currentOwner?.name ?? "Your workspace"}
+              <small>My workspace</small>
+            </span>
+          </div>
         </div>
       </header>
+      <ChangesNotice />
       <main id="pipeline-workspace" className={styles.main} tabIndex={-1}>
         <div className={styles.titleRow}>
           <div>
@@ -164,9 +199,11 @@ export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSess
                 key={view.id}
                 type="button"
                 aria-pressed={filters.view === view.id}
-                onClick={() =>
-                  setFilters((current) => ({ ...current, view: view.id }))
-                }
+                onClick={() => {
+                  if (filters.view !== view.id)
+                    selection.clear("Work view changed. Selection cleared.");
+                  setFilters((current) => ({ ...current, view: view.id }));
+                }}
               >
                 {view.label}
                 <span>{formatCount(counts[view.id])}</span>
@@ -180,51 +217,62 @@ export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSess
           >
             <label className={styles.search}>
               <span>Search company</span>
-              <input
-                ref={searchRef}
-                id="company-search"
-                type="search"
-                value={search}
-                placeholder="Search by company name…"
-                onChange={(event) => setSearch(event.target.value)}
-              />
+              <span className={styles.searchField}>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
+                <input
+                  ref={searchRef}
+                  id="company-search"
+                  type="search"
+                  value={search}
+                  placeholder="Search by company name…"
+                  onChange={(event) => {
+                    selection.clear("Search changed. Selection cleared.");
+                    setSearch(event.target.value);
+                  }}
+                />
+              </span>
             </label>
             <label>
               <span>Owner</span>
-              <select
+              <Dropdown
+                aria-label="Owner"
+                className={styles.dropdown}
                 value={filters.ownerId}
-                onChange={(event) =>
+                options={[
+                  { value: "", label: "All owners" },
+                  ...owners.map((owner) => ({
+                    value: owner.id,
+                    label: owner.name,
+                  })),
+                ]}
+                onValueChange={(ownerId) => {
+                  selection.clear("Owner filter changed. Selection cleared.");
                   setFilters((current) => ({
                     ...current,
-                    ownerId: event.target.value,
-                  }))
-                }
-              >
-                <option value="">All owners</option>
-                {owners.map((owner) => (
-                  <option key={owner.id} value={owner.id}>
-                    {owner.name}
-                  </option>
-                ))}
-              </select>
+                    ownerId,
+                  }));
+                }}
+              />
             </label>
             <label>
               <span>Stage</span>
-              <select
+              <Dropdown
+                aria-label="Stage"
+                className={styles.dropdown}
                 value={filters.stage}
-                onChange={(event) => {
-                  const stage = event.target.value;
+                options={[
+                  { value: "", label: "All stages" },
+                  ...STAGES.map((stage) => ({
+                    value: stage,
+                    label: STAGE_LABELS[stage],
+                  })),
+                ]}
+                onValueChange={(stage) => {
+                  selection.clear("Stage filter changed. Selection cleared.");
                   if (stage === "" || isStage(stage))
                     setFilters((current) => ({ ...current, stage }));
                 }}
-              >
-                <option value="">All stages</option>
-                {STAGES.map((stage) => (
-                  <option key={stage} value={stage}>
-                    {STAGE_LABELS[stage]}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
             <button
               type="button"
@@ -232,6 +280,7 @@ export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSess
               disabled={!hasFilters}
               onClick={clearFilters}
             >
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 7a6 6 0 1 1-.5 5M4 3v4h4" /></svg>
               Clear filters
             </button>
           </div>
@@ -250,67 +299,40 @@ export function PipelineWorkspace({ session, onReset }: { session: WorkspaceSess
                   {listStale ? "displayed deals" : "matching deals"}
                 </>
               )}
-              <span> · {activeView.label}</span>
             </p>
-            <details className={styles.rules}>
-              <summary>How attention works</summary>
-              <div className={styles.rulesContent}>
-                <strong>Clear reasons. No hidden scores.</strong>
-                <p>
-                  New leads wait at least 2 days. Open deals have no customer
-                  activity for at least 7 days. Negotiations inactive for 14
-                  days receive highest urgency. Won and Lost deals are excluded.
-                </p>
-                <p>
-                  We use whole elapsed days and the creation date when activity
-                  is missing. New leads rank above general inactivity. Ties use
-                  oldest activity, highest value, then deal ID.
-                </p>
-                <p>
-                  Needs attention starts sorted by priority. You can change the
-                  sort using column headers. Priorities refresh every minute
-                  when you aren’t working here.
-                </p>
-              </div>
-            </details>
+            <AttentionHelp />
           </div>
-          {priorityRefreshPending && (
-            <div className={styles.refreshNotice} role="status">
-              Time-based priorities may have changed.
-              <button
-                type="button"
-                onClick={() => {
-                  setAsOf(Date.now());
-                  setPriorityRefreshPending(false);
-                  searchRef.current?.focus();
-                }}
-              >
-                Refresh priorities
-              </button>
-            </div>
-          )}
           <PipelineTable
             projection={projection}
             onActiveDealChange={setActiveDealId}
             operations={operations}
+            selection={selection}
+            bulk={bulk}
+            owners={owners}
+            searching={searching}
             filters={filters}
-            listStale={listStale}
+            listRefreshReason={listRefreshReason}
             onCountChange={setMatching}
             onSortChange={setSortDescription}
-            onStaleChange={setListStale}
+            onStaleChange={setListRefreshReason}
           />
           <footer className={styles.footer}>
-            <p id="pipeline-keyboard-help">
-              Arrows navigate · Enter/F2 edits stage · Escape cancels · End for
-              last row
+            <p id="pipeline-keyboard-help" className={styles.srOnly}>
+              Arrows navigate · Tab reaches actions · Space selects a row · Enter/F2 edits stage ·
+              Escape cancels · End for last row
             </p>
-            <a href="#company-search">Back to filters</a>
-            <p>
-              Sorted by <strong>{sortDescription}</strong>
-            </p>
+            <div className={styles.keyboardHints} aria-hidden="true">
+              <span><kbd>↑ ↓</kbd> Navigate</span>
+              <span><kbd>Enter</kbd> Edit stage</span>
+              <span><kbd>Space</kbd> Select</span>
+            </div>
+            <p className={styles.sortInfo}>Sorted by <strong>{sortDescription}</strong></p>
+            <a className={styles.backToFilters} href="#company-search">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3m-4 4 4-4 4 4" /></svg>
+              Back to filters
+            </a>
           </footer>
         </section>
-        <ResultsPanel service={operations} model={model} />
         <p className={styles.footnote}>
           Customer activity dates stay independent of stage changes.
         </p>

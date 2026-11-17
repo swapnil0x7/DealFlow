@@ -1,6 +1,7 @@
 import { ApiError, MAX_BATCH_SIZE } from '../api/contracts'
 import type { MoveCommand, MoveResult } from '../api/contracts'
 import type { SimulationConfiguration, SimulationFault, SimulationSettings } from '../api/simulation-contracts'
+import type { ChangeNotice } from '../api/change-notifications'
 import { STAGES } from '../domain/deal'
 import { CURRENT_OWNER_ID } from '../domain/filters'
 import { DealRepository } from './repository'
@@ -21,6 +22,7 @@ interface SimulationOptions {
   random?: Random
   wait?: Wait
   createData?: (seed: number, clock: Clock) => ReturnType<typeof seedDeals>
+  onNotification?: (notice: ChangeNotice) => void
 }
 
 export class Simulation {
@@ -40,6 +42,7 @@ export class Simulation {
   private teammateController = new AbortController()
   private teammateGeneration = 0
   private disposed = false
+  private readonly onNotification: SimulationOptions['onNotification']
 
   constructor(options: SimulationOptions = {}) {
     this.clock = options.clock ?? Date.now
@@ -47,6 +50,7 @@ export class Simulation {
     this.createData = options.createData ?? ((seed, clock) => seedDeals({ seed, clock }))
     this.injectedRandom = options.random
     this.random = options.random ?? seededRandom(this.seed ^ 0xa5a5a5a5)
+    this.onNotification = options.onNotification
     this.repository = this.newRepository()
   }
 
@@ -56,6 +60,7 @@ export class Simulation {
     this.teammateIds = data.owners.filter((owner) => owner.id !== CURRENT_OWNER_ID).map((owner) => owner.id)
     return new DealRepository({
       ...data, sessionId: crypto.randomUUID(), clock: this.clock,
+      onChange: (sessionId, cursor) => this.notify({ kind: 'changes', sessionId, cursor }),
     })
   }
 
@@ -64,6 +69,10 @@ export class Simulation {
   }
 
   assertSession(sessionId: string): void { this.repository.assertSession(sessionId) }
+
+  private notify(notice: ChangeNotice): void {
+    try { this.onNotification?.(notice) } catch { /* Observer failure does not change saved state or controls. */ }
+  }
 
   configure(input: unknown): ReturnType<Simulation['configuration']> {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ApiError('invalid_request', 'Expected simulation settings.')
@@ -78,8 +87,10 @@ export class Simulation {
       throw new ApiError('invalid_request', 'Delay must be 0–30000 ms with minimum ≤ maximum; failureRate 0–1; teammate interval 500–30000 ms; switches must be booleans.')
     }
     const restart = next.teammatesEnabled !== this.settings.teammatesEnabled || next.teammateIntervalMs !== this.settings.teammateIntervalMs || next.offline !== this.settings.offline
+    const deliveryChanged = next.offline !== this.settings.offline || next.changeDeliveryPaused !== this.settings.changeDeliveryPaused
     this.settings = next
     if (restart) { this.stopTeammates(); this.scheduleTeammate() }
+    if (deliveryChanged) this.notify({ kind: 'configuration', sessionId: this.repository.sessionId })
     return this.configuration()
   }
 
@@ -225,6 +236,7 @@ export class Simulation {
     this.controller = new AbortController()
     this.disposed = false
     this.repository = this.newRepository()
+    this.notify({ kind: 'reset', sessionId: this.repository.sessionId })
     return this.configuration()
   }
 

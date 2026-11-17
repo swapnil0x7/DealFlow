@@ -5,6 +5,46 @@ import { abortableWait, DEFAULT_SETTINGS, Simulation } from './simulation'
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 
 describe('adjustable simulator', () => {
+  it('notifies only after effective commits, including lost responses, and announces delivery settings/reset', async () => {
+    const onNotification = vi.fn()
+    const runtime = new Simulation({ clock, createData: data, wait: async () => {}, onNotification })
+    runtime.configure({ minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 })
+    const sessionId = runtime.configuration().sessionId
+    const first = command({ sessionId })
+    await runtime.move(first)
+    expect(onNotification.mock.calls.map(([notice]) => notice)).toEqual([{ kind: 'changes', sessionId, cursor: 1 }])
+    await runtime.move(first)
+    await runtime.move(command({ sessionId, mutationId: 'noop', expectedVersion: 2 }))
+    await runtime.move(command({ sessionId, mutationId: 'conflict', stage: 'won' }))
+    runtime.forceFault('save-failure')
+    await runtime.move(command({ sessionId, mutationId: 'failed', stage: 'won', expectedVersion: 2 }))
+    expect(onNotification).toHaveBeenCalledTimes(1)
+    runtime.forceFault('lost-response')
+    await expect(runtime.move(command({ sessionId, mutationId: 'lost-response', stage: 'won', expectedVersion: 2 })))
+      .rejects.toMatchObject({ issue: { code: 'response_lost' } })
+    expect(onNotification).toHaveBeenLastCalledWith({ kind: 'changes', sessionId, cursor: 2 })
+    runtime.configure({ changeDeliveryPaused: true })
+    expect(onNotification).toHaveBeenLastCalledWith({ kind: 'configuration', sessionId })
+    expect(() => runtime.configure({ offline: 'invalid' })).toThrow()
+    runtime.configure({ offline: true })
+    expect(onNotification).toHaveBeenLastCalledWith({ kind: 'configuration', sessionId })
+    const replacement = runtime.reset(17)
+    expect(replacement.sessionId).not.toBe(sessionId)
+    expect(onNotification).toHaveBeenLastCalledWith({ kind: 'reset', sessionId: replacement.sessionId })
+    runtime.dispose()
+  })
+
+  it('keeps durable writes successful even when a notification observer throws', async () => {
+    const runtime = new Simulation({ clock, createData: data, wait: async () => {}, onNotification: () => { throw new Error('Observer failure') } })
+    runtime.configure({ minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 })
+    const sessionId = runtime.configuration().sessionId
+    const result = await runtime.move(command({ sessionId }))
+    expect(result.status).toBe('succeeded')
+    expect(await runtime.operation('mutation-1', sessionId)).toMatchObject({ status: 'completed', result: { status: 'succeeded' } })
+    expect((await runtime.snapshot()).cursor).toBe(1)
+    runtime.dispose()
+  })
+
   it('starts with documented defaults and independently applies seeded faults to each item', async () => {
     const rolls = [0.01, 0.5, 0.9, 0.5]
     const runtime = new Simulation({ clock, createData: data, wait: async () => {}, random: () => rolls.shift() ?? 0.5 })

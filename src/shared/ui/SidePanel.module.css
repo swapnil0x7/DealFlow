@@ -1,0 +1,12 @@
+.panel { position: fixed; inset: 0 0 0 auto; z-index: 30; width: min(460px, 100vw); height: 100dvh; display: flex; flex-direction: column; background: #fff; color: #243d37; border-left: 1px solid #dce5de; box-shadow: -12px 0 40px #193e3514; font-size: 13px; line-height: 1.6; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: max(24px, env(safe-area-inset-top)) 24px 20px; border-bottom: 1px solid #e2e8e4; }
+.header h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: -.4px; }
+.header p { margin: 0; color: #5b7064; font-size: 12px; }
+.close { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid #dce5de; border-radius: 7px; background: #fff; color: #466256; }
+.close:hover { background: #f0f5f1; }
+.close svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.body { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; padding: 20px 24px max(24px, env(safe-area-inset-bottom)); }
+.overlay { position: fixed; inset: 0; z-index: 29; background: #142c295c; }
+@media (max-width: 767px) { .panel { width: 100%; border-left: 0; } .header { padding-inline: 20px; } .body { padding-inline: 20px; } }
+@media (prefers-reduced-motion: no-preference) { .panel[data-state='open'] { animation: appear 160ms ease-out; } }
+@keyframes appear { from { transform: translateX(16px); } to { transform: translateX(0); } }

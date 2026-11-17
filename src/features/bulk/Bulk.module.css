@@ -1,0 +1,70 @@
+.selectionBar { border-top: 1px solid #e2e8e4; padding: 20px 24px 12px; background: #f5f9f6; font-size: 12px; }
+.selectionTop { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px 32px; }
+.selectionSummary { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.selectionIcon { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; background: #e2eee7; color: #1c6152; border-radius: 11px; }
+.selectionIcon svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.selectionTotals { display: grid; gap: 4px; min-width: 0; line-height: 1.45; }
+.selectionTotals strong { font-size: 18px; font-weight: 600; letter-spacing: -.3px; }
+.selectionValue { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.selectionValue > span { color: #50665a; margin-left: 4px; font-size: 11px; }
+.bulkMoveActions { display: flex; align-items: flex-end; gap: 12px; }
+.targetStage { display: grid; gap: 6px; color: #50665a; font-size: 11px; }
+.targetStage > button { width: 180px; }
+.selectionBar .reviewButton { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 39px; padding: 9px 14px; border-color: #194e41; background: #194e41; color: white; font-weight: 600; }
+.reviewButton svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.selectionFooter { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; margin-top: 16px; padding-top: 10px; border-top: 1px solid #e0e8e2; }
+.selectionUtilities { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; }
+.selectionBar .selectionUtilities button { background: transparent; border-color: transparent; padding: 5px 0; text-align: left; }
+.selectionBar .selectionUtilities button + button { color: #52665f; }
+.selectionHelp { color: #50665a; font-size: 11px; max-width: 480px; }
+.selectionHelp summary { cursor: pointer; padding: 5px 0; }
+.selectionHelp > div { padding-top: 4px; line-height: 1.65; }
+.selectionHelp p { margin: 4px 0; }
+.selectionBar[data-selected='false'] { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; padding-top: 12px; }
+.selectionBar[data-selected='false'] .selectionTotals strong { font-size: 12px; letter-spacing: normal; }
+.selectionBar[data-selected='false'] .selectionFooter { border: 0; margin: 0; padding: 0; order: -1; }
+.selectionBar[data-selected='false'] .progress { flex-basis: 100%; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #dce5de; font-size: 11px; color: #456356; }
+.progress p { margin: 0; flex: 1; min-width: 180px; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.selectionNotice { color: #50665a; font-size: 11px; }
+.selectionNotice { display: block; }
+.selectionBar button, .panel button, .dialog button { background: white; color: #24574d; border: 1px solid #9cb6a9; border-radius: 5px; padding: 7px 10px; cursor: pointer; font: inherit; }
+.selectionBar button:disabled, .panel button:disabled, .dialog button:disabled { opacity: .55; cursor: default; }
+.panel { background: white; border: 1px solid #dce3db; border-radius: 12px; margin-top: 20px; padding: 22px 24px; font-size: 12px; line-height: 1.6; }
+.panel h2 { font-size: 16px; margin: 0; }
+.panel h3 { font-size: 14px; margin: 0; }
+.operation { border-top: 1px solid #dce3db; margin-top: 16px; padding-top: 16px; }
+.summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0; }
+.summary span { white-space: nowrap; }
+.message { padding: 8px 12px; background: #fff8e7; color: #765a1c; }
+.itemList { max-height: 340px; overflow: auto; padding: 0; list-style: none; border: 1px solid #dce3db; border-radius: 6px; }
+.item { padding: 12px; border-bottom: 1px solid #e2e8e4; }
+.item:last-child { border: 0; }
+.item p { margin: 3px 0 8px; }
+.itemHeading { display: flex; justify-content: space-between; gap: 12px; }
+.pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.overlay { position: fixed; inset: 0; background: #11251c80; z-index: 60; }
+.dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(620px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow: auto; background: white; color: #243d37; padding: 26px; border-radius: 12px; z-index: 61; font-size: 13px; line-height: 1.6; box-shadow: 0 20px 80px #11251c44; }
+.dialog h2 { font-size: 20px; margin-top: 0; }
+.reviewFacts { display: grid; grid-template-columns: minmax(130px, .7fr) minmax(0, 1fr); gap: 10px 16px; }
+.reviewFacts dt { font-weight: 600; }
+.reviewFacts dd { margin: 0; overflow-wrap: anywhere; }
+.previewItems { padding-left: 20px; }
+.dialog .actions { margin-top: 20px; }
+.embedded { border: 0; border-radius: 0; padding: 0; margin-top: 24px; }
+.embedded .itemList { max-height: none; }
+.embedded .summary span { white-space: normal; }
+.changed { color: #82550e; }
+@media (max-width: 600px) { .selectionBar, .panel { padding: 16px; } .reviewFacts { grid-template-columns: 1fr; gap: 4px; } .reviewFacts dd { margin-bottom: 10px; } }
+@media (max-width: 600px) {
+  .selectionTop { align-items: stretch; gap: 18px; }
+  .selectionSummary, .bulkMoveActions { width: 100%; }
+  .bulkMoveActions { flex-wrap: wrap; gap: 10px; }
+  .targetStage { flex: 1; min-width: 150px; }
+  .targetStage > button { width: 100%; }
+  .selectionBar .reviewButton { flex: 1; white-space: nowrap; }
+  .selectionFooter { margin-top: 14px; gap: 6px; }
+  .selectionHelp { flex-basis: 100%; }
+}

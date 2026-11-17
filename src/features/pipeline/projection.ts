@@ -34,9 +34,9 @@ export class PipelineProjection {
   readonly initialRows: PipelineRow[]
   private readonly byId: Map<string, PipelineRow>
   private readonly names: Map<string, string>
-  private readonly now: number
+  private now: number
   private counts: Counts
-  private readonly rowListeners = new Set<(rows: PipelineRow[]) => void>()
+  private readonly rowListeners = new Set<(rows: PipelineRow[], source: 'records' | 'time') => void>()
   private readonly countListeners = new Set<() => void>()
 
   constructor(deals: readonly Deal[], owners: readonly Owner[], now: number) {
@@ -49,11 +49,12 @@ export class PipelineProjection {
   }
 
   getCounts = (): Counts => this.counts
+  get evaluationTime(): number { return this.now }
   subscribeCounts = (listener: () => void): (() => void) => {
     this.countListeners.add(listener)
     return () => { this.countListeners.delete(listener) }
   }
-  subscribeRows(listener: (rows: PipelineRow[]) => void): () => void {
+  subscribeRows(listener: (rows: PipelineRow[], source: 'records' | 'time') => void): () => void {
     this.rowListeners.add(listener)
     return () => { this.rowListeners.delete(listener) }
   }
@@ -76,6 +77,29 @@ export class PipelineProjection {
       this.counts = counts
       this.countListeners.forEach((listener) => listener())
     }
-    this.rowListeners.forEach((listener) => listener(rows))
+    this.rowListeners.forEach((listener) => listener(rows, 'records'))
+  }
+
+  /** Reuse the projection and record snapshots; only changed attention fields are published. */
+  refreshTime(now: number): void {
+    if (now === this.now) return
+    this.now = now
+    const rows: PipelineRow[] = []
+    let attentionCount = this.counts.attention
+    for (const previous of this.byId.values()) {
+      const attention = attentionFor(previous.deal, now)
+      if (attention?.urgency === previous.attention?.urgency &&
+          attention?.baseline === previous.attention?.baseline &&
+          attention?.reason === previous.attention?.reason) continue
+      const row = { ...previous, attention }
+      this.byId.set(row.deal.id, row)
+      rows.push(row)
+      attentionCount += Number(Boolean(attention)) - Number(Boolean(previous.attention))
+    }
+    if (attentionCount !== this.counts.attention) {
+      this.counts = { ...this.counts, attention: attentionCount }
+      this.countListeners.forEach((listener) => listener())
+    }
+    if (rows.length) this.rowListeners.forEach((listener) => listener(rows, 'time'))
   }
 }
