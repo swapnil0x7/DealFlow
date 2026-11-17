@@ -79,6 +79,7 @@ export function Dropdown<Value extends string>({
       </Select.Trigger>
       <Select.Portal>
         <Select.Content
+          data-motion="popover"
           className={`${styles.menu} ${popupClassName ?? ''}`}
           style={
             popupMinWidth

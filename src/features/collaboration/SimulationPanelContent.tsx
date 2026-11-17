@@ -94,20 +94,25 @@ export function SimulationPanelContent({
       open={open}
       onOpenChange={(value) => {
         if (value) {
+          setConfirmReset(false)
           setLoading(true)
           setSettingsReady(false)
           setMessage('')
         }
         setOpen(value)
-        if (!value) setConfirmReset(false)
       }}
     >
       <Dialog.Trigger asChild>
         <Button className={styles.trigger}>Simulation</Button>
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.dialog} aria-modal="true">
+        <Dialog.Overlay className={styles.overlay} data-motion="overlay" />
+        <Dialog.Content
+          className={styles.dialog}
+          aria-modal="true"
+          data-motion="modal"
+          inert={!open}
+        >
           <Dialog.Title>Simulation controls</Dialog.Title>
           <Dialog.Description>
             Adjust delays, failures, and teammate activity. Delay and failure settings apply to new

@@ -4,6 +4,8 @@ import { CURRENT_OWNER_ID, DEFAULT_FILTERS, normalizeSearch } from '../../domain
 import type { PipelineFilters, WorkView } from '../../domain/filters'
 import { formatCount } from '../../shared/format'
 import { Dropdown } from '../../shared/ui/Dropdown'
+import { ViewSwitcher } from '../../shared/ui/ViewSwitcher'
+import { TableScrollControls } from './TableScrollControls'
 import type { WorkspaceSession } from '../collaboration/session'
 import { ConnectionStatus } from '../collaboration/ConnectionStatus'
 import { SimulationPanel } from '../collaboration/SimulationPanel'
@@ -88,6 +90,7 @@ function WorkspaceContent({
   const [matching, setMatching] = useState(model.size)
   const [sortDescription, setSortDescription] = useState('Company ascending')
   const searchRef = useRef<HTMLInputElement>(null)
+  const scrollHost = useRef<HTMLDivElement>(null)
   const projection = useMemo(
     () => new PipelineProjection(model.all(), owners, openedAt),
     [model, owners, openedAt],
@@ -167,23 +170,19 @@ function WorkspaceContent({
         </div>
 
         <section className={styles.panel} aria-label="Pipeline workspace">
-          <div className={styles.views} role="group" aria-label="Work views">
-            {VIEWS.map((view) => (
-              <button
-                key={view.id}
-                type="button"
-                aria-pressed={filters.view === view.id}
-                onClick={() => {
-                  if (filters.view !== view.id)
-                    selection.clear('Work view changed. Selection cleared.')
-                  setFilters((current) => ({ ...current, view: view.id }))
-                }}
-              >
-                {view.label}
-                <span>{formatCount(counts[view.id])}</span>
-              </button>
-            ))}
-          </div>
+          <ViewSwitcher
+            aria-label="Work views"
+            value={filters.view}
+            options={VIEWS.map((view) => ({
+              value: view.id,
+              label: view.label,
+              count: formatCount(counts[view.id]),
+            }))}
+            onValueChange={(view) => {
+              if (filters.view !== view) selection.clear('Work view changed. Selection cleared.')
+              setFilters((current) => ({ ...current, view }))
+            }}
+          />
           <div className={styles.toolbar} role="search" aria-label="Filter deals">
             <label className={styles.search}>
               <span>Search company</span>
@@ -273,6 +272,7 @@ function WorkspaceContent({
             <AttentionHelp />
           </div>
           <PipelineTable
+            scrollHostRef={scrollHost}
             projection={projection}
             onActiveDealChange={setActiveDealId}
             operations={operations}
@@ -305,12 +305,28 @@ function WorkspaceContent({
             <p className={styles.sortInfo}>
               Sorted by <strong>{sortDescription}</strong>
             </p>
-            <a className={styles.backToFilters} href="#company-search">
+            <a
+              className={styles.backToFilters}
+              href="#company-search"
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                event.preventDefault()
+                const search = searchRef.current
+                search?.focus({ preventScroll: true })
+                search?.scrollIntoView({
+                  behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+                    ? 'instant'
+                    : 'smooth',
+                  block: 'center',
+                })
+              }}
+            >
               <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M8 13V3m-4 4 4-4 4 4" />
               </svg>
               Back to filters
             </a>
+            <TableScrollControls host={scrollHost} />
           </footer>
         </section>
         <p className={styles.footnote}>

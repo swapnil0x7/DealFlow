@@ -22,6 +22,25 @@
   opacity: 0.55;
   cursor: default;
 }
+.trigger:hover:enabled {
+  border-color: var(--color-action-hover-border);
+  background: var(--color-field-surface);
+}
+.trigger[data-state='open'] .chevron {
+  rotate: 180deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trigger,
+  .option {
+    transition:
+      background-color var(--motion-duration-fast),
+      border-color var(--motion-duration-fast),
+      color var(--motion-duration-fast);
+  }
+  .chevron {
+    transition: rotate var(--motion-duration-normal) var(--motion-ease-out);
+  }
+}
 .value {
   min-width: 0;
   overflow: hidden;

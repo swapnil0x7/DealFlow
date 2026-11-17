@@ -1,4 +1,8 @@
 :root {
+  --motion-duration-fast: 120ms;
+  --motion-duration-normal: 180ms;
+  --motion-duration-enter: 240ms;
+  --motion-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   color-scheme: light;
   --color-result-text: #456356;
   --color-on-action: #fff;

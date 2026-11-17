@@ -28,3 +28,16 @@
   width: 12px;
   height: 12px;
 }
+.trigger[data-state='open'] .chevron {
+  rotate: 180deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trigger {
+    transition:
+      background-color var(--motion-duration-fast),
+      border-color var(--motion-duration-fast);
+  }
+  .chevron {
+    transition: rotate var(--motion-duration-normal) var(--motion-ease-out);
+  }
+}

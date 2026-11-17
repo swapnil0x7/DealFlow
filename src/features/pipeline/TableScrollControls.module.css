@@ -1,0 +1,28 @@
+.controls {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--color-navigation-border);
+  border-radius: 7px;
+  background: var(--color-surface);
+  padding: 2px;
+}
+.controls button {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  border-radius: 4px;
+}
+.controls button:hover {
+  background: var(--color-hover);
+}
+.controls svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.controls svg[data-direction='1'] {
+  rotate: 180deg;
+}

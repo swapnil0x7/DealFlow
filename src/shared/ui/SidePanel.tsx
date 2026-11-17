@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react'
 import type { FocusEvent, KeyboardEvent, ReactNode, Ref } from 'react'
 import { createPortal } from 'react-dom'
 import * as Dialog from '@radix-ui/react-dialog'
+import { Presence } from '@radix-ui/react-presence'
 import { useMediaQuery } from '../use-media-query'
+import { useExitSnapshot } from '../use-exit-snapshot'
 import styles from './SidePanel.module.css'
 
 export interface SidePanelHandle {
@@ -39,10 +49,25 @@ export function SidePanel({
   const content = useRef<HTMLDivElement>(null)
   const restore = useRef(returnFocus)
   const focused = useRef<{ element: HTMLElement; fallback: HTMLElement | null } | null>(null)
-  const restoreAfterClose = useCallback(() => {
-    // Inspect the current node, since a responsive replacement may have mounted after cleanup.
-    if (!content.current) restore.current()?.focus({ preventScroll: true })
-  }, [])
+  const liveContent = useMemo(
+    () => (open ? { title, description, children } : null),
+    [open, title, description, children],
+  )
+  const [displayed, release] = useExitSnapshot(liveContent)
+  const setContent = useCallback(
+    (element: HTMLDivElement | null) => {
+      content.current = element
+      if (element) return
+      queueMicrotask(() => {
+        // A responsive replacement or quick reopen must retain its content and focus.
+        if (content.current) return
+        release()
+        if (document.activeElement === document.body)
+          restore.current()?.focus({ preventScroll: true })
+      })
+    },
+    [release],
+  )
   useImperativeHandle(
     ref,
     () => ({
@@ -57,11 +82,7 @@ export function SidePanel({
   useLayoutEffect(() => {
     if (!open) return
     heading.current?.focus({ preventScroll: true })
-    return () => {
-      // Mode changes mount a replacement. Only restore the invoker after an actual close.
-      queueMicrotask(restoreAfterClose)
-    }
-  }, [open, compact, restoreAfterClose])
+  }, [open, compact])
   useEffect(() => {
     const element = content.current
     if (!open || !element) return
@@ -122,25 +143,23 @@ export function SidePanel({
       returnFocus()?.focus({ preventScroll: true })
     }
   }
-  if (!open) return null
-
   const body = (
     <>
       <div className={styles.header}>
         <div>
           {compact ? (
             <Dialog.Title ref={heading} id={titleId} tabIndex={-1}>
-              {title}
+              {displayed?.title}
             </Dialog.Title>
           ) : (
             <h2 ref={heading} id={titleId} tabIndex={-1}>
-              {title}
+              {displayed?.title}
             </h2>
           )}
           {compact ? (
-            <Dialog.Description id={descriptionId}>{description}</Dialog.Description>
+            <Dialog.Description id={descriptionId}>{displayed?.description}</Dialog.Description>
           ) : (
-            <p id={descriptionId}>{description}</p>
+            <p id={descriptionId}>{displayed?.description}</p>
           )}
         </div>
         <button
@@ -154,15 +173,17 @@ export function SidePanel({
           </svg>
         </button>
       </div>
-      <div className={styles.body}>{children}</div>
+      <div className={styles.body}>{displayed?.children}</div>
     </>
   )
   const props = {
-    ref: content,
+    ref: setContent,
     className: styles.panel,
     'data-side-panel': true,
     'data-compact': compact,
-    'data-state': 'open',
+    'data-state': open ? 'open' : 'closed',
+    'data-motion': 'panel',
+    inert: !open,
     'aria-labelledby': titleId,
     'aria-describedby': descriptionId,
     onFocusCapture,
@@ -170,9 +191,9 @@ export function SidePanel({
     onKeyDown,
   }
   return compact ? (
-    <Dialog.Root open onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className={styles.overlay} />
+        <Dialog.Overlay className={styles.overlay} data-motion="overlay" />
         <Dialog.Content
           {...props}
           aria-modal="true"
@@ -189,9 +210,11 @@ export function SidePanel({
     </Dialog.Root>
   ) : (
     createPortal(
-      <div {...props} role="dialog" tabIndex={-1}>
-        {body}
-      </div>,
+      <Presence present={open}>
+        <div {...props} role="dialog" tabIndex={-1}>
+          {body}
+        </div>
+      </Presence>,
       document.body,
     )
   )

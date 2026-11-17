@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
+import type { Ref } from 'react'
 import { useStore } from 'zustand'
 import { AgGridReact } from 'ag-grid-react'
 import {
@@ -248,6 +249,7 @@ function applyViewSort(api: GridApi<PipelineRow>, view: WorkView) {
 }
 
 interface Props {
+  scrollHostRef?: Ref<HTMLDivElement>
   projection: PipelineProjection
   operations: OperationService
   selection: SelectionService
@@ -263,6 +265,7 @@ interface Props {
 }
 
 export function PipelineTable({
+  scrollHostRef,
   projection,
   operations,
   selection,
@@ -459,7 +462,7 @@ export function PipelineTable({
           </button>
         </div>
       )}
-      <div className={styles.grid}>
+      <div className={styles.grid} ref={scrollHostRef}>
         <AgGridReact<PipelineRow>
           theme={theme}
           rowData={projection.initialRows}

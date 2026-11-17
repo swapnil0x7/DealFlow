@@ -1,16 +1,17 @@
 import { Button } from '../../shared/ui/Button'
-import { useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import type { RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useStore } from 'zustand'
 import { STAGE_LABELS } from '../../domain/deal'
 import { formatCount, formatMoney } from '../../shared/format'
+import { useExitSnapshot } from '../../shared/use-exit-snapshot'
 import type { BulkPreview } from './types'
 import type { BulkService } from './service'
 import styles from './Bulk.module.css'
 
 export function BulkReview({
-  preview,
+  preview: livePreview,
   service,
   onClose,
   trigger,
@@ -29,18 +30,31 @@ export function BulkReview({
   const expired = useStore(service.store, (state) => state.expired)
   const notice = useStore(service.store, (state) => state.notice)
   const content = useRef<HTMLDivElement>(null)
+  const [preview, release] = useExitSnapshot(livePreview)
+  const setContent = useCallback(
+    (element: HTMLDivElement | null) => {
+      content.current = element
+      if (!element)
+        queueMicrotask(() => {
+          if (!content.current) release()
+        })
+    },
+    [release],
+  )
   return (
     <Dialog.Root
-      open={Boolean(preview)}
+      open={Boolean(livePreview)}
       onOpenChange={(open) => {
         if (!open) onClose()
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className={styles.overlay} />
+        <Dialog.Overlay className={styles.overlay} data-motion="overlay" />
         <Dialog.Content
           aria-modal="true"
-          ref={content}
+          ref={setContent}
+          data-motion="modal"
+          inert={!livePreview}
           className={styles.dialog}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
@@ -119,7 +133,7 @@ export function BulkReview({
                   <Button>Cancel bulk review</Button>
                 </Dialog.Close>
                 <Button
-                  disabled={expired}
+                  disabled={expired || !livePreview}
                   onClick={() => {
                     const id = service.submit(preview)
                     if (id) {

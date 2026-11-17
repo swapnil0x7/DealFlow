@@ -79,15 +79,9 @@
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .panel[data-state='open'] {
-    animation: appear 160ms ease-out;
-  }
-}
-@keyframes appear {
-  from {
-    transform: translateX(16px);
-  }
-  to {
-    transform: translateX(0);
+  .close {
+    transition:
+      background-color var(--motion-duration-fast),
+      color var(--motion-duration-fast);
   }
 }
