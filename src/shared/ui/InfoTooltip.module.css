@@ -7,7 +7,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
-  color: #526b5e;
+  color: var(--color-tooltip-trigger);
   font-size: 11px;
   line-height: 1.4;
   white-space: nowrap;
@@ -37,8 +37,8 @@
   background: var(--color-surface);
   color: var(--color-control-text);
   box-shadow:
-    0 12px 40px #193e351c,
-    0 2px 8px #193e350a;
+    0 12px 40px var(--color-shadow-tooltip-primary),
+    0 2px 8px var(--color-shadow-menu-secondary);
   font-size: 12px;
   line-height: 1.6;
 }

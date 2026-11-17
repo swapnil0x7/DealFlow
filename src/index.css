@@ -11,7 +11,6 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  color-scheme: light;
 }
 * {
   box-sizing: border-box;
@@ -56,19 +55,19 @@ p {
 }
 .workspace section {
   background: var(--color-surface);
-  border: 1px solid #dce3de;
+  border: 1px solid var(--color-startup-border);
   border-radius: var(--radius-panel);
   padding: 28px;
 }
 .workspace button {
   background: var(--color-action);
-  color: var(--color-surface);
+  color: var(--color-on-action);
   border: 0;
   border-radius: var(--radius-control);
   padding: 12px 18px;
 }
 .eyebrow {
-  color: #52665f;
+  color: var(--color-action-muted);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.1em;

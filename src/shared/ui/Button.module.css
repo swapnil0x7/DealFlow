@@ -1,8 +1,8 @@
 .button {
-  border: 1px solid var(--button-border, #9cb6a9);
+  border: 1px solid var(--button-border, var(--color-button-border));
   border-radius: var(--button-radius, var(--radius-small));
   background: var(--button-background, var(--color-surface));
-  color: var(--button-color, #24574d);
+  color: var(--button-color, var(--color-button-text));
   padding: var(--button-padding, 7px 10px);
   font: inherit;
   font-size: var(--button-font-size, inherit);
@@ -14,7 +14,7 @@
 }
 .primary {
   background: var(--color-action);
-  color: var(--color-surface);
+  color: var(--color-on-action);
 }
 .ghost {
   background: transparent;

@@ -9,7 +9,7 @@
   background: var(--color-surface);
   color: var(--color-text);
   border-left: 1px solid var(--color-border-floating);
-  box-shadow: -12px 0 40px #193e3514;
+  box-shadow: -12px 0 40px var(--color-shadow-panel-side);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -40,10 +40,10 @@
   border: 1px solid var(--color-border-floating);
   border-radius: 7px;
   background: var(--color-surface);
-  color: #466256;
+  color: var(--color-panel-action);
 }
 .close:hover {
-  background: #f0f5f1;
+  background: var(--color-panel-close-hover);
 }
 .close svg {
   width: 20px;
@@ -64,7 +64,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--layer-panel-overlay);
-  background: #142c295c;
+  background: var(--color-overlay-modal);
 }
 @media (max-width: 767px) {
   .panel {

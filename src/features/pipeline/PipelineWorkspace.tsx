@@ -15,6 +15,7 @@ import { ChangesProvider } from '../operations/ChangesProvider'
 import { ChangesButton } from '../operations/ChangesButton'
 import { ChangesNotice } from '../operations/ChangesNotice'
 import styles from './Pipeline.module.css'
+import { ThemeSwitcher } from '../theme/ThemeSwitcher'
 
 const VIEWS: { id: WorkView; label: string }[] = [
   { id: 'all', label: 'All deals' },
@@ -131,6 +132,7 @@ function WorkspaceContent({
           <ConnectionStatus feed={feed} />
           <ChangesButton />
           <SimulationPanel session={session} activeDealId={activeDealId} onReset={onReset} />
+          <ThemeSwitcher />
           <div className={styles.identity}>
             <span className={styles.avatar} aria-hidden="true">
               AS

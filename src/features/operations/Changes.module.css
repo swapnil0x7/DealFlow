@@ -3,7 +3,7 @@
   align-items: center;
   gap: var(--space-2);
   min-height: 34px;
-  border: 1px solid #bacdc0;
+  border: 1px solid var(--color-control-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-action);
@@ -25,8 +25,8 @@
 .badge {
   border-radius: var(--radius-panel);
   padding: 1px 6px;
-  background: #fff3e3;
-  color: #77511e;
+  background: var(--color-warning-badge-surface);
+  color: var(--color-warning-badge-text);
   font-size: 11px;
 }
 .hint {
@@ -42,15 +42,15 @@
 .back {
   padding: 7px 10px;
   border-radius: var(--radius-control);
-  border: 1px solid #d6e2d9;
-  color: #466256;
+  border: 1px solid var(--color-panel-action-border);
+  color: var(--color-panel-action);
   background: var(--color-surface);
   font-size: 12px;
 }
 .filters button[aria-pressed='true'] {
   color: var(--color-action);
-  background: #edf5ef;
-  border-color: #9ab8a8;
+  background: var(--color-panel-action-hover);
+  border-color: var(--color-panel-active-border);
 }
 .back {
   margin-bottom: 20px;
@@ -68,24 +68,24 @@
   margin: 6px 0;
 }
 .status {
-  color: #456356;
+  color: var(--color-result-text);
   font-size: 12px;
 }
 [data-state='failed'] > .status {
-  color: #913c30;
+  color: var(--color-error-text);
 }
 [data-state='conflicted'] > .status,
 [data-state='unconfirmed'] > .status {
-  color: #76561a;
+  color: var(--color-warning-text);
 }
 [data-resolved='true'] > .status {
-  color: #286c46;
+  color: var(--color-stage-won-text);
 }
 .warning {
   padding: 12px;
-  border: 1px solid #e6d9b6;
-  background: #fff9e9;
-  color: #6d501c;
+  border: 1px solid var(--color-notice-border);
+  background: var(--color-notice-surface);
+  color: var(--color-notice-text);
   border-radius: 7px;
 }
 .warning button {
@@ -103,9 +103,9 @@
 .reviewActions,
 .warning {
   --button-color: var(--color-action);
-  --button-border: #bacdc0;
+  --button-border: var(--color-control-border);
   --button-radius: var(--radius-control);
-  --button-background: #f8fbf8;
+  --button-background: var(--color-button-soft-surface);
   --button-padding: 6px 10px;
   --button-font-size: 12px;
 }
@@ -131,15 +131,15 @@
   gap: var(--space-2);
   min-height: 36px;
   padding: 8px 12px;
-  border-color: #b2cbbd;
+  border-color: var(--color-undo-border);
   border-radius: 7px;
   background: var(--color-surface);
   color: var(--color-brand);
   font-weight: 600;
 }
 .actions .undoButton:hover:enabled {
-  background: #edf5ef;
-  border-color: #92af9e;
+  background: var(--color-panel-action-hover);
+  border-color: var(--color-undo-hover-border);
 }
 .actions .detailsButton {
   display: inline-flex;
@@ -156,7 +156,7 @@
 }
 .comparison {
   margin: 20px 0;
-  border: 1px solid #e0e8e1;
+  border: 1px solid var(--color-comparison-border);
   border-radius: var(--radius-medium);
   overflow: hidden;
 }
@@ -164,7 +164,7 @@
   padding: 14px;
 }
 .comparison div + div {
-  border-top: 1px solid #e0e8e1;
+  border-top: 1px solid var(--color-comparison-border);
 }
 .comparison dt {
   color: var(--color-muted);
@@ -182,7 +182,7 @@
   white-space: nowrap;
 }
 .intention {
-  background: #f1f7f3;
+  background: var(--color-intent-surface);
 }
 .reviewActions {
   display: flex;
@@ -197,7 +197,7 @@
 }
 .reviewActions .primary {
   background: var(--color-action);
-  color: var(--color-surface);
+  color: var(--color-on-action);
   border-color: var(--color-action);
 }
 .rowActions {
@@ -216,11 +216,11 @@
   font-size: 11px;
   line-height: 1.3;
   color: var(--color-action);
-  background: #edf5ef;
+  background: var(--color-panel-action-hover);
   white-space: nowrap;
 }
 .rowActions button:hover:enabled {
-  background: #dfeee4;
+  background: var(--color-action-hover);
 }
 .rowActions button:disabled {
   opacity: 0.55;
@@ -230,15 +230,15 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  border: 1px solid #d2ded6;
+  border: 1px solid var(--color-row-undo-border);
   border-radius: var(--radius-small);
   padding: 4px 8px;
   background: var(--color-surface);
-  color: #2b5c4d;
+  color: var(--color-row-undo-text);
 }
 .rowActions .undoButton:hover:enabled {
-  background: #edf5ef;
-  border-color: #9bb8a8;
+  background: var(--color-panel-action-hover);
+  border-color: var(--color-row-undo-hover-border);
 }
 .rowActions .detailsButton {
   display: inline-flex;
@@ -248,7 +248,7 @@
   border: 1px solid transparent;
   padding: 4px;
   background: transparent;
-  color: #52665f;
+  color: var(--color-action-muted);
 }
 .rowActions .detailsButton:hover:enabled {
   background: var(--color-hover);
@@ -288,8 +288,8 @@
   align-items: center;
   gap: var(--space-3);
   padding: 12px 40px;
-  background: #fff9e9;
-  color: #6d501c;
+  background: var(--color-notice-surface);
+  color: var(--color-notice-text);
   font-size: 12px;
 }
 .workspaceNotice button {

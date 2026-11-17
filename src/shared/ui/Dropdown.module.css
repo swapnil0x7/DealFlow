@@ -6,7 +6,7 @@
   min-width: 0;
   min-height: var(--control-height);
   padding: 9px 12px;
-  border: 1px solid #d7dfd5;
+  border: 1px solid var(--color-dropdown-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-control-text);
@@ -33,7 +33,7 @@
   flex-shrink: 0;
   width: 16px;
   height: 16px;
-  color: #475f55;
+  color: var(--color-dropdown-icon);
 }
 .chevron svg,
 .check svg {
@@ -54,8 +54,8 @@
   background: var(--color-surface);
   color: var(--color-control-text);
   box-shadow:
-    0 8px 28px #193e351a,
-    0 2px 6px #193e350a;
+    0 8px 28px var(--color-shadow-menu-primary),
+    0 2px 6px var(--color-shadow-menu-secondary);
   font-size: 12px;
   overflow: hidden;
 }
@@ -63,7 +63,7 @@
   max-height: min(300px, calc(var(--radix-select-content-available-height) - 12px));
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #c7d6cd transparent;
+  scrollbar-color: var(--color-scrollbar) transparent;
 }
 .option {
   position: relative;
@@ -83,7 +83,7 @@
 }
 .option[data-highlighted] {
   background: var(--color-hover);
-  color: #164f44;
+  color: var(--color-dropdown-active-text);
   outline: none;
 }
 .option[data-disabled] {
@@ -109,7 +109,7 @@
 .trigger[data-size='filter'] {
   width: 100%;
   height: var(--filter-height);
-  border-color: #d7e1d9;
+  border-color: var(--color-border-field);
   border-radius: var(--radius-medium);
   padding: 12px 14px;
 }

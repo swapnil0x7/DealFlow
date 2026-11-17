@@ -2,6 +2,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './styles/tokens.css'
 import App from './App'
+import { initializeTheme } from './features/theme/browser'
+
+initializeTheme()
 
 const root = createRoot(document.getElementById('root')!)
 root.render(
