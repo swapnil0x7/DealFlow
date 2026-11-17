@@ -10,8 +10,17 @@ export interface PipelineRow {
   readonly attention: Attention | null
 }
 
-export function projectDeal(deal: Deal, owners: ReadonlyMap<string, string>, now: number): PipelineRow {
-  return { deal, ownerName: owners.get(deal.ownerId) ?? 'Unknown owner', searchName: deal.companyName.toLowerCase(), attention: attentionFor(deal, now) }
+export function projectDeal(
+  deal: Deal,
+  owners: ReadonlyMap<string, string>,
+  now: number,
+): PipelineRow {
+  return {
+    deal,
+    ownerName: owners.get(deal.ownerId) ?? 'Unknown owner',
+    searchName: deal.companyName.toLowerCase(),
+    attention: attentionFor(deal, now),
+  }
 }
 
 export function projectPipeline(deals: readonly Deal[], owners: readonly Owner[], now: number) {
@@ -36,7 +45,9 @@ export class PipelineProjection {
   private readonly names: Map<string, string>
   private now: number
   private counts: Counts
-  private readonly rowListeners = new Set<(rows: PipelineRow[], source: 'records' | 'time') => void>()
+  private readonly rowListeners = new Set<
+    (rows: PipelineRow[], source: 'records' | 'time') => void
+  >()
   private readonly countListeners = new Set<() => void>()
 
   constructor(deals: readonly Deal[], owners: readonly Owner[], now: number) {
@@ -49,14 +60,20 @@ export class PipelineProjection {
   }
 
   getCounts = (): Counts => this.counts
-  get evaluationTime(): number { return this.now }
+  get evaluationTime(): number {
+    return this.now
+  }
   subscribeCounts = (listener: () => void): (() => void) => {
     this.countListeners.add(listener)
-    return () => { this.countListeners.delete(listener) }
+    return () => {
+      this.countListeners.delete(listener)
+    }
   }
   subscribeRows(listener: (rows: PipelineRow[], source: 'records' | 'time') => void): () => void {
     this.rowListeners.add(listener)
-    return () => { this.rowListeners.delete(listener) }
+    return () => {
+      this.rowListeners.delete(listener)
+    }
   }
 
   apply(records: readonly Deal[]): void {
@@ -68,12 +85,18 @@ export class PipelineProjection {
       const row = projectDeal(record, this.names, this.now)
       this.byId.set(record.id, row)
       counts.all += previous ? 0 : 1
-      counts.mine += Number(record.ownerId === CURRENT_OWNER_ID) - Number(previous?.deal.ownerId === CURRENT_OWNER_ID)
+      counts.mine +=
+        Number(record.ownerId === CURRENT_OWNER_ID) -
+        Number(previous?.deal.ownerId === CURRENT_OWNER_ID)
       counts.attention += Number(Boolean(row.attention)) - Number(Boolean(previous?.attention))
       rows.push(row)
     }
     if (!rows.length) return
-    if (counts.all !== this.counts.all || counts.mine !== this.counts.mine || counts.attention !== this.counts.attention) {
+    if (
+      counts.all !== this.counts.all ||
+      counts.mine !== this.counts.mine ||
+      counts.attention !== this.counts.attention
+    ) {
       this.counts = counts
       this.countListeners.forEach((listener) => listener())
     }
@@ -88,9 +111,12 @@ export class PipelineProjection {
     let attentionCount = this.counts.attention
     for (const previous of this.byId.values()) {
       const attention = attentionFor(previous.deal, now)
-      if (attention?.urgency === previous.attention?.urgency &&
-          attention?.baseline === previous.attention?.baseline &&
-          attention?.reason === previous.attention?.reason) continue
+      if (
+        attention?.urgency === previous.attention?.urgency &&
+        attention?.baseline === previous.attention?.baseline &&
+        attention?.reason === previous.attention?.reason
+      )
+        continue
       const row = { ...previous, attention }
       this.byId.set(row.deal.id, row)
       rows.push(row)

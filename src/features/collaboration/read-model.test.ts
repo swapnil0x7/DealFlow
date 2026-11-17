@@ -8,7 +8,9 @@ describe('confirmed read model (T05 foundation)', () => {
     const listener = vi.fn()
     model.subscribe(listener)
     const changes = model.apply([
-      { ...deal, version: 3, stage: 'won' }, { ...deal, version: 2, stage: 'lost' }, { ...deal, version: 3, stage: 'contacted' },
+      { ...deal, version: 3, stage: 'won' },
+      { ...deal, version: 2, stage: 'lost' },
+      { ...deal, version: 3, stage: 'contacted' },
     ])
     expect(changes).toHaveLength(1)
     expect(model.get(deal.id)).toMatchObject({ version: 3, stage: 'won' })
@@ -37,7 +39,10 @@ describe('confirmed read model (T05 foundation)', () => {
     const model = new ConfirmedReadModel([deal])
     const listener = vi.fn()
     const unsubscribe = model.subscribe(listener)
-    model.apply([{ ...deal, version: 2 }, { ...deal, version: 4 }])
+    model.apply([
+      { ...deal, version: 2 },
+      { ...deal, version: 4 },
+    ])
     expect(listener.mock.calls[0][0]).toEqual([{ ...deal, version: 4 }])
     unsubscribe()
     model.apply([{ ...deal, version: 5 }])

@@ -8,10 +8,16 @@ export class ConfirmedReadModel {
   private readonly listeners = new Set<Listener>()
   private cachedRecords: readonly Deal[] | undefined
 
-  constructor(records: readonly Deal[]) { this.apply(records) }
+  constructor(records: readonly Deal[]) {
+    this.apply(records)
+  }
 
-  get size(): number { return this.records.size }
-  get(id: string): Deal | undefined { return this.records.get(id) }
+  get size(): number {
+    return this.records.size
+  }
+  get(id: string): Deal | undefined {
+    return this.records.get(id)
+  }
 
   all(): readonly Deal[] {
     this.cachedRecords ??= Object.freeze(Array.from(this.records.values()))
@@ -36,6 +42,8 @@ export class ConfirmedReadModel {
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
+    return () => {
+      this.listeners.delete(listener)
+    }
   }
 }

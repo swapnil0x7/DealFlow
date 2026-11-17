@@ -9,9 +9,19 @@ export function ChangesNotice() {
   const bulkNotice = useStore(bulk.store, (state) => state.notice)
   const expired = useStore(operations.store, (state) => state.sessionExpired)
   if (!notice && !bulkNotice && !expired) return null
-  return <div className={styles.workspaceNotice} role="alert">
-    <span>{expired ? 'The demo session expired. Reload to continue.' : notice ?? bulkNotice}</span>
-    <button onClick={(event) => controller.open({ kind: 'history', filter: 'all' }, event.currentTarget)}>View changes</button>
-    {expired && <button onClick={() => location.reload()}>Reload workspace</button>}
-  </div>
+  return (
+    <div className={styles.workspaceNotice} role="alert">
+      <span>
+        {expired ? 'The demo session expired. Reload to continue.' : (notice ?? bulkNotice)}
+      </span>
+      <button
+        onClick={(event) =>
+          controller.open({ kind: 'history', filter: 'all' }, event.currentTarget)
+        }
+      >
+        View changes
+      </button>
+      {expired && <button onClick={() => location.reload()}>Reload workspace</button>}
+    </div>
+  )
 }

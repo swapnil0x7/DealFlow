@@ -15,16 +15,59 @@ function setup(options: { timeoutMs?: number; historyLimit?: number } = {}) {
     operation: vi.fn(async (id: string) => repository.operation(id, 'session-1')),
   }
   let count = 0
-  const service = new OperationService({ api, model, sessionId: 'session-1', actorId: 'owner-1', clock, id: () => `op-${++count}`, ...options })
+  const service = new OperationService({
+    api,
+    model,
+    sessionId: 'session-1',
+    actorId: 'owner-1',
+    clock,
+    id: () => `op-${++count}`,
+    ...options,
+  })
   const item = (id = 'op-1') => service.store.getState().byId[id]
   return { repository, model, api, service, item }
 }
 afterEach(() => vi.useRealTimers())
 
 describe('single-deal command lifecycle', () => {
+  it.each(['mutation', 'actor', 'previous-stage', 'record', 'status'] as const)(
+    'keeps a %s mismatch recoverable without accepting another command',
+    async (mismatch) => {
+      const { api, repository, model, service, item } = setup({ timeoutMs: 10 })
+      api.move.mockImplementationOnce(async (command) => {
+        const result = await repository.move(command)
+        if (result.status !== 'succeeded') throw new Error('Expected a saved receipt')
+        if (mismatch === 'mutation')
+          result.receipt = { ...result.receipt, mutationId: 'someone-else' }
+        if (mismatch === 'actor') result.receipt = { ...result.receipt, actorId: 'owner-2' }
+        if (mismatch === 'previous-stage')
+          result.receipt = { ...result.receipt, previousStage: 'won' }
+        if (mismatch === 'record') result.receipt = { ...result.receipt, record: null! }
+        if (mismatch === 'status') return { status: 'unexpected' } as never
+        return result
+      })
+      service.move(deal, 'contacted')
+      await vi.waitFor(() => expect(item().status).toBe('unconfirmed'))
+      expect(item()).toMatchObject({ checking: false, canResume: false })
+      expect(model.get(deal.id)?.version).toBe(1)
+      await service.reconcile('op-1')
+      expect(item().status).toBe('succeeded')
+      expect(model.get(deal.id)?.version).toBe(2)
+      expect(api.move).toHaveBeenCalledTimes(1)
+      service.dispose()
+    },
+  )
+
   it('keeps an explicitly reviewed latest stage without another write and retains the original conflict', async () => {
     const { repository, model, api, service, item } = setup()
-    await repository.move({ sessionId: 'session-1', mutationId: 'teammate', actorId: 'owner-2', dealId: deal.id, expectedVersion: 1, stage: 'won' })
+    await repository.move({
+      sessionId: 'session-1',
+      mutationId: 'teammate',
+      actorId: 'owner-2',
+      dealId: deal.id,
+      expectedVersion: 1,
+      stage: 'won',
+    })
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item().status).toBe('conflicted'))
     const latest = model.get(deal.id)!
@@ -41,7 +84,14 @@ describe('single-deal command lifecycle', () => {
 
   it('rejects keeping a review after another known version or after session expiry', async () => {
     const { repository, model, service, item } = setup()
-    await repository.move({ sessionId: 'session-1', mutationId: 'teammate', actorId: 'owner-2', dealId: deal.id, expectedVersion: 1, stage: 'won' })
+    await repository.move({
+      sessionId: 'session-1',
+      mutationId: 'teammate',
+      actorId: 'owner-2',
+      dealId: deal.id,
+      expectedVersion: 1,
+      stage: 'won',
+    })
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item().status).toBe('conflicted'))
     const reviewed = model.get(deal.id)!
@@ -54,15 +104,26 @@ describe('single-deal command lifecycle', () => {
   })
   it('shows an older command’s explicit retry as current activity after a later local success', async () => {
     const { model, repository, api, service, item } = setup()
-    api.move.mockImplementationOnce((command) => repository.move(command, async () => { throw new ApiError('save_failed', 'Retry later', true) }))
+    api.move.mockImplementationOnce((command) =>
+      repository.move(command, async () => {
+        throw new ApiError('save_failed', 'Retry later', true)
+      }),
+    )
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item().status).toBe('failed'))
     service.move(model.get(deal.id)!, 'won')
     await vi.waitFor(() => expect(item('op-2').status).toBe('succeeded'))
     const gate = deferred()
-    api.move.mockImplementationOnce(async (command) => { await gate.promise; return repository.move(command) })
+    api.move.mockImplementationOnce(async (command) => {
+      await gate.promise
+      return repository.move(command)
+    })
     const retry = service.retry('op-1')
-    expect(service.activity.get(deal.id)).toMatchObject({ id: 'op-1', status: 'saving', stage: 'contacted' })
+    expect(service.activity.get(deal.id)).toMatchObject({
+      id: 'op-1',
+      status: 'saving',
+      stage: 'contacted',
+    })
     expect(service.isBlocked(deal.id)).toBe(true)
     gate.resolve()
     await retry
@@ -74,7 +135,10 @@ describe('single-deal command lifecycle', () => {
   it('retains confirmed data while saving, blocks overlap on the same deal, and allows other deals', async () => {
     const { repository, model, api, service, item } = setup()
     const gate = deferred()
-    api.move.mockImplementationOnce(async (command) => { await gate.promise; return repository.move(command) })
+    api.move.mockImplementationOnce(async (command) => {
+      await gate.promise
+      return repository.move(command)
+    })
     expect(service.move(model.get(deal.id)!, 'contacted')).toBe('op-1')
     expect(item().status).toBe('saving')
     expect(model.get(deal.id)?.stage).toBe('new-lead')
@@ -83,37 +147,60 @@ describe('single-deal command lifecycle', () => {
     gate.resolve()
     await vi.waitFor(() => expect(item().status).toBe('succeeded'))
     expect(model.get(deal.id)).toMatchObject({ stage: 'contacted', version: 2 })
-    expect(api.move.mock.calls[0][0]).toMatchObject({ expectedVersion: 1, stage: 'contacted', mutationId: 'op-1' })
+    expect(api.move.mock.calls[0][0]).toMatchObject({
+      expectedVersion: 1,
+      stage: 'contacted',
+      mutationId: 'op-1',
+    })
     service.dispose()
   })
 
   it('retries a definite failure with the original ID/version; a remote change then conflicts instead of rebasing', async () => {
     const { repository, model, api, service, item } = setup()
-    api.move.mockImplementationOnce((command) => repository.move(command, async () => { throw new ApiError('save_failed', 'Try again', true) }))
+    api.move.mockImplementationOnce((command) =>
+      repository.move(command, async () => {
+        throw new ApiError('save_failed', 'Try again', true)
+      }),
+    )
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item().status).toBe('failed'))
     expect(model.get(deal.id)?.version).toBe(1)
-    await repository.move({ ...item().command, mutationId: 'teammate', actorId: 'owner-2', stage: 'won' })
+    await repository.move({
+      ...item().command,
+      mutationId: 'teammate',
+      actorId: 'owner-2',
+      stage: 'won',
+    })
     await service.retry('op-1')
-    expect(item()).toMatchObject({ status: 'conflicted', attempts: 2, conflict: { stage: 'won', version: 2 } })
+    expect(item()).toMatchObject({
+      status: 'conflicted',
+      attempts: 2,
+      conflict: { stage: 'won', version: 2 },
+    })
     expect(api.move.mock.calls[1][0]).toEqual(api.move.mock.calls[0][0])
     service.dispose()
   })
 
   it('automatically reconciles a post-commit lost response without issuing a second write', async () => {
     const { repository, model, api, service, item } = setup()
-    api.move.mockImplementationOnce(async (command) => { await repository.move(command); throw new TransportError('lost') })
+    api.move.mockImplementationOnce(async (command) => {
+      await repository.move(command)
+      throw new TransportError('lost')
+    })
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item().status).toBe('succeeded'))
     expect(api.move).toHaveBeenCalledTimes(1)
-    expect(api.operation).toHaveBeenCalledWith('op-1')
+    expect(api.operation).toHaveBeenCalledWith('op-1', expect.any(AbortSignal))
     expect(repository.snapshot().cursor).toBe(1)
     service.dispose()
   })
 
   it('retains unconfirmed work when reconciliation is unavailable and confirms it on explicit checking', async () => {
     const { repository, model, api, service, item } = setup()
-    api.move.mockImplementationOnce(async (command) => { await repository.move(command); throw new TransportError('lost') })
+    api.move.mockImplementationOnce(async (command) => {
+      await repository.move(command)
+      throw new TransportError('lost')
+    })
     api.operation.mockRejectedValueOnce(new TransportError('offline'))
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item()).toMatchObject({ status: 'unconfirmed', checking: false }))
@@ -143,10 +230,19 @@ describe('single-deal command lifecycle', () => {
   it('does not downgrade a feed-confirmed success on a late HTTP error or regress a newer read-model version', async () => {
     const { repository, model, api, service, item } = setup()
     const gate = deferred()
-    api.move.mockImplementationOnce(async (command) => { await gate.promise; await repository.move(command); throw new TransportError('late failure') })
+    api.move.mockImplementationOnce(async (command) => {
+      await gate.promise
+      await repository.move(command)
+      throw new TransportError('late failure')
+    })
     service.move(model.get(deal.id)!, 'contacted')
     model.apply([{ ...deal, stage: 'won', version: 3 }])
-    service.confirmChange({ sequence: 1, mutationId: 'op-1', actorId: 'owner-1', record: { ...deal, stage: 'contacted', version: 2 } })
+    service.confirmChange({
+      sequence: 1,
+      mutationId: 'op-1',
+      actorId: 'owner-1',
+      record: { ...deal, stage: 'contacted', version: 2 },
+    })
     expect(item().status).toBe('succeeded')
     gate.resolve()
     await vi.waitFor(() => expect(repository.snapshot().cursor).toBe(1))
@@ -161,7 +257,9 @@ describe('single-deal command lifecycle', () => {
     const gate = deferred()
     api.move.mockImplementationOnce((command) => repository.move(command, () => gate.promise))
     service.move(model.get(deal.id)!, 'contacted')
-    await vi.waitFor(() => expect(item()).toMatchObject({ status: 'unconfirmed', canResume: false, checking: false }))
+    await vi.waitFor(() =>
+      expect(item()).toMatchObject({ status: 'unconfirmed', canResume: false, checking: false }),
+    )
     expect(model.get(deal.id)?.version).toBe(1)
     gate.resolve()
     await vi.waitFor(() => expect(item().status).toBe('succeeded'))
@@ -176,9 +274,17 @@ describe('single-deal command lifecycle', () => {
     expect(service.undo('op-1')).toBe('op-2')
     expect(service.undo('op-1')).toBeNull()
     await vi.waitFor(() => expect(item('op-2').status).toBe('succeeded'))
-    expect(item('op-2')).toMatchObject({ kind: 'undo', parentId: 'op-1', command: { expectedVersion: 2, stage: 'new-lead', mutationId: 'op-2' } })
+    expect(item('op-2')).toMatchObject({
+      kind: 'undo',
+      parentId: 'op-1',
+      command: { expectedVersion: 2, stage: 'new-lead', mutationId: 'op-2' },
+    })
     expect(item().status).toBe('succeeded')
-    expect(model.get(deal.id)).toMatchObject({ stage: 'new-lead', version: 3, lastActivityAt: null })
+    expect(model.get(deal.id)).toMatchObject({
+      stage: 'new-lead',
+      version: 3,
+      lastActivityAt: null,
+    })
     service.dispose()
   })
 
@@ -186,7 +292,13 @@ describe('single-deal command lifecycle', () => {
     const { repository, model, service, item } = setup()
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item().status).toBe('succeeded'))
-    await repository.move({ ...item().command, expectedVersion: 2, mutationId: 'other', actorId: 'owner-2', stage: 'won' })
+    await repository.move({
+      ...item().command,
+      expectedVersion: 2,
+      mutationId: 'other',
+      actorId: 'owner-2',
+      stage: 'won',
+    })
     service.undo('op-1')
     await vi.waitFor(() => expect(item('op-2').status).toBe('conflicted'))
     expect(item().status).toBe('succeeded')
@@ -197,11 +309,24 @@ describe('single-deal command lifecycle', () => {
   it('reviews a captured latest version with a new ID; a second intervening edit conflicts again', async () => {
     const { repository, model, service, item } = setup()
     const initial = model.get(deal.id)!
-    await repository.move({ dealId: deal.id, stage: 'won', expectedVersion: 1, mutationId: 'remote-1', actorId: 'owner-2', sessionId: 'session-1' })
+    await repository.move({
+      dealId: deal.id,
+      stage: 'won',
+      expectedVersion: 1,
+      mutationId: 'remote-1',
+      actorId: 'owner-2',
+      sessionId: 'session-1',
+    })
     service.move(initial, 'negotiation')
     await vi.waitFor(() => expect(item().status).toBe('conflicted'))
     const reviewed = model.get(deal.id)!
-    await repository.move({ ...item().command, expectedVersion: 2, mutationId: 'remote-2', actorId: 'owner-2', stage: 'lost' })
+    await repository.move({
+      ...item().command,
+      expectedVersion: 2,
+      mutationId: 'remote-2',
+      actorId: 'owner-2',
+      stage: 'lost',
+    })
     expect(service.review('op-1', reviewed)).toBe('op-2')
     await vi.waitFor(() => expect(item('op-2').status).toBe('conflicted'))
     expect(item('op-2').command.expectedVersion).toBe(2)
@@ -238,7 +363,10 @@ describe('single-deal command lifecycle', () => {
     vi.useFakeTimers()
     const { repository, model, api, service } = setup()
     const gate = deferred()
-    api.move.mockImplementationOnce(async (command) => { await gate.promise; return repository.move(command) })
+    api.move.mockImplementationOnce(async (command) => {
+      await gate.promise
+      return repository.move(command)
+    })
     service.move(model.get(deal.id)!, 'won')
     expect(vi.getTimerCount()).toBe(1)
     service.dispose()
@@ -260,7 +388,10 @@ describe('single-deal command lifecycle', () => {
 
   it('reconciles missed receipts after resync without rewriting the captured version or issuing another save', async () => {
     const { repository, model, api, service, item } = setup()
-    api.move.mockImplementationOnce(async (command) => { await repository.move(command); throw new TransportError('lost') })
+    api.move.mockImplementationOnce(async (command) => {
+      await repository.move(command)
+      throw new TransportError('lost')
+    })
     api.operation.mockRejectedValueOnce(new TransportError('feed/read unavailable'))
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item()).toMatchObject({ status: 'unconfirmed', checking: false }))
@@ -279,7 +410,10 @@ describe('single-deal command lifecycle', () => {
     service.move(model.get(deal.id)!, 'contacted')
     await vi.waitFor(() => expect(item().status).toBe('succeeded'))
     expect(service.canUndo('op-1')).toBe(true)
-    model.apply([{ ...deal, stage: 'won', version: 3 }, { ...deal, id: 'deal-2', version: 4 }])
+    model.apply([
+      { ...deal, stage: 'won', version: 3 },
+      { ...deal, id: 'deal-2', version: 4 },
+    ])
     expect(service.store.getState().knownVersions).toEqual({ [deal.id]: 3 })
     expect(service.canUndo('op-1')).toBe(false)
     service.dispose()

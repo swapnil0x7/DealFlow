@@ -1,0 +1,32 @@
+:root {
+  --color-surface: #fff;
+  --color-canvas: #f5f6f3;
+  --color-text: #243d37;
+  --color-control-text: #344e43;
+  --color-muted: #5b7064;
+  --color-action: #155b50;
+  --color-brand: #194e41;
+  --color-hover: #edf4ef;
+  --color-border-panel: #dce3db;
+  --color-border-floating: #dce5de;
+  --color-border-subtle: #e2e8e4;
+  --radius-small: 5px;
+  --radius-control: 6px;
+  --radius-medium: 8px;
+  --radius-menu: 10px;
+  --radius-panel: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --control-height: 39px;
+  --filter-height: 44px;
+  --layer-panel-overlay: 29;
+  --layer-panel: 30;
+  --layer-modal-overlay: 60;
+  --layer-modal: 61;
+  --layer-dropdown: 80;
+  --layer-tooltip: 85;
+}

@@ -1,4 +1,8 @@
-const money = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })
+const money = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  maximumFractionDigits: 0,
+})
 const count = new Intl.NumberFormat('en-IN')
 const date = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 const time = new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' })

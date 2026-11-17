@@ -7,11 +7,18 @@ export function useAnnouncement(message: string, delay = 1_000): string {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     latest.current = message
-    if (timer.current === undefined) timer.current = setTimeout(() => {
-      timer.current = undefined
-      setAnnounced(latest.current)
-    }, delay)
+    if (timer.current === undefined)
+      timer.current = setTimeout(() => {
+        timer.current = undefined
+        setAnnounced(latest.current)
+      }, delay)
   }, [message, delay])
-  useEffect(() => () => { clearTimeout(timer.current); timer.current = undefined }, [])
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current)
+      timer.current = undefined
+    },
+    [],
+  )
   return announced
 }

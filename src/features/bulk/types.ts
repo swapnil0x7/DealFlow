@@ -1,10 +1,26 @@
 import type { ApiIssue, MoveCommand, Receipt } from '../../api/contracts'
 import type { Deal, Stage } from '../../domain/deal'
-import type { ItemState } from '../operations/service'
+import type { ItemState } from '../../domain/command'
 
-export const ITEM_STATES: readonly ItemState[] = ['queued', 'saving', 'succeeded', 'failed', 'conflicted', 'unconfirmed', 'skipped']
+export const ITEM_STATES: readonly ItemState[] = [
+  'queued',
+  'saving',
+  'succeeded',
+  'failed',
+  'conflicted',
+  'unconfirmed',
+  'skipped',
+]
 export type Counts = Record<ItemState, number>
-export const emptyCounts = (): Counts => ({ queued: 0, saving: 0, succeeded: 0, failed: 0, conflicted: 0, unconfirmed: 0, skipped: 0 })
+export const emptyCounts = (): Counts => ({
+  queued: 0,
+  saving: 0,
+  succeeded: 0,
+  failed: 0,
+  conflicted: 0,
+  unconfirmed: 0,
+  skipped: 0,
+})
 
 export interface PreviewItem {
   readonly command: MoveCommand
@@ -26,9 +42,18 @@ export interface BulkPreview {
   readonly pending: number
   readonly noops: number
   readonly excluded: number
-  readonly parent?: { readonly groupId: string; readonly itemId?: string; readonly relation: 'undo' | 'review' }
+  readonly parent?: {
+    readonly groupId: string
+    readonly itemId?: string
+    readonly relation: 'undo' | 'review'
+  }
 }
-export interface AttemptResult { readonly attempt: number; readonly at: number; readonly status: ItemState; readonly message?: string }
+export interface AttemptResult {
+  readonly attempt: number
+  readonly at: number
+  readonly status: ItemState
+  readonly message?: string
+}
 export interface BulkItem extends PreviewItem {
   readonly status: ItemState
   readonly attempts: number

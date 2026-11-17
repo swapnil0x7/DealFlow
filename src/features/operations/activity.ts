@@ -1,5 +1,5 @@
 import type { Stage } from '../../domain/deal'
-import type { ItemState } from './service'
+import type { ItemState } from '../../domain/command'
 
 export interface CommandActivity {
   readonly id: string
@@ -10,19 +10,24 @@ export interface CommandActivity {
   readonly resolution?: 'kept' | 'replaced'
 }
 
-export const isUnresolved = (status: ItemState) => status === 'queued' || status === 'saving' || status === 'unconfirmed'
+export const isUnresolved = (status: ItemState) =>
+  status === 'queued' || status === 'saving' || status === 'unconfirmed'
 
 /** Shared local write guards and small per-deal subscriptions for both command workflows. */
 export class ActivityRegistry {
   private readonly byDeal = new Map<string, Map<string, CommandActivity>>()
   private readonly listeners = new Map<string, Set<() => void>>()
+  private readonly changeListeners = new Set<(dealIds: readonly string[]) => void>()
   private readonly dirty = new Set<string>()
   private batching = 0
 
   get(dealId: string): CommandActivity | undefined {
     let latest: CommandActivity | undefined
     let pending: CommandActivity | undefined
-    this.byDeal.get(dealId)?.forEach((item) => { latest = item; if (isUnresolved(item.status)) pending = item })
+    this.byDeal.get(dealId)?.forEach((item) => {
+      latest = item
+      if (isUnresolved(item.status)) pending = item
+    })
     return pending ?? latest
   }
 
@@ -41,7 +46,10 @@ export class ActivityRegistry {
 
   update(item: CommandActivity): void {
     let entries = this.byDeal.get(item.dealId)
-    if (!entries) { entries = new Map(); this.byDeal.set(item.dealId, entries) }
+    if (!entries) {
+      entries = new Map()
+      this.byDeal.set(item.dealId, entries)
+    }
     // An explicit retry is current activity even when its command was created before a later resolved command.
     // Late terminal receipts do not move old commands ahead of newer activity.
     if (item.status === 'queued' || item.status === 'saving') entries.delete(item.id)
@@ -58,24 +66,43 @@ export class ActivityRegistry {
 
   subscribe(dealId: string, listener: () => void): () => void {
     let listeners = this.listeners.get(dealId)
-    if (!listeners) { listeners = new Set(); this.listeners.set(dealId, listeners) }
+    if (!listeners) {
+      listeners = new Set()
+      this.listeners.set(dealId, listeners)
+    }
     listeners.add(listener)
-    return () => { listeners.delete(listener); if (!listeners.size) this.listeners.delete(dealId) }
+    return () => {
+      listeners.delete(listener)
+      if (!listeners.size) this.listeners.delete(dealId)
+    }
+  }
+
+  subscribeChanges(listener: (dealIds: readonly string[]) => void): () => void {
+    this.changeListeners.add(listener)
+    return () => {
+      this.changeListeners.delete(listener)
+    }
   }
 
   batch<T>(work: () => T): T {
     this.batching++
-    try { return work() } finally {
+    try {
+      return work()
+    } finally {
       if (--this.batching === 0) {
         const dirty = Array.from(this.dirty)
         this.dirty.clear()
         dirty.forEach((id) => this.listeners.get(id)?.forEach((listener) => listener()))
+        if (dirty.length) this.changeListeners.forEach((listener) => listener(dirty))
       }
     }
   }
 
   private changed(id: string): void {
     if (this.batching) this.dirty.add(id)
-    else this.listeners.get(id)?.forEach((listener) => listener())
+    else {
+      this.listeners.get(id)?.forEach((listener) => listener())
+      this.changeListeners.forEach((listener) => listener([id]))
+    }
   }
 }

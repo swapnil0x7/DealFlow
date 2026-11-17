@@ -5,7 +5,13 @@ import type { Deal } from './deal'
 
 const DAY = 86_400_000
 const ago = (days: number) => new Date(NOW - days * DAY).toISOString()
-const candidate = (changes: Partial<Deal> = {}): Deal => ({ ...deal, stage: 'contacted', createdAt: ago(30), lastActivityAt: ago(0), ...changes })
+const candidate = (changes: Partial<Deal> = {}): Deal => ({
+  ...deal,
+  stage: 'contacted',
+  createdAt: ago(30),
+  lastActivityAt: ago(0),
+  ...changes,
+})
 
 describe('explainable attention (T18)', () => {
   it.each([
@@ -20,7 +26,11 @@ describe('explainable attention (T18)', () => {
 
   it('uses createdAt for absent activity; a newer stage update never replaces that baseline', () => {
     const record = candidate({ lastActivityAt: null, createdAt: ago(8), updatedAt: ago(0) })
-    expect(attentionFor(record, NOW)).toEqual({ urgency: 1, baseline: Date.parse(ago(8)), reason: 'No activity for 8 days' })
+    expect(attentionFor(record, NOW)).toEqual({
+      urgency: 1,
+      baseline: Date.parse(ago(8)),
+      reason: 'No activity for 8 days',
+    })
   })
 
   it.each(['won', 'lost'] as const)('excludes closed %s records regardless of age', (stage) => {
@@ -28,7 +38,9 @@ describe('explainable attention (T18)', () => {
   })
 
   it('prefers new-lead waiting over general inactivity and handles future dates without negative age', () => {
-    expect(attentionFor(candidate({ stage: 'new-lead', lastActivityAt: ago(8) }), NOW)?.urgency).toBe(2)
+    expect(
+      attentionFor(candidate({ stage: 'new-lead', lastActivityAt: ago(8) }), NOW)?.urgency,
+    ).toBe(2)
     expect(attentionFor(candidate({ createdAt: ago(-2), lastActivityAt: null }), NOW)).toBeNull()
   })
 
@@ -42,7 +54,11 @@ describe('explainable attention (T18)', () => {
       candidate({ id: 'neg-a', stage: 'negotiation', lastActivityAt: ago(20), valuePaise: 500 }),
       candidate({ id: 'fresh' }),
     ]
-    expect(records.map((record) => ({ deal: record, attention: attentionFor(record, NOW) })).sort(compareAttention).map((row) => row.deal.id))
-      .toEqual(['neg-a', 'neg-b', 'neg-c', 'neg-newer', 'lead', 'inactive', 'fresh'])
+    expect(
+      records
+        .map((record) => ({ deal: record, attention: attentionFor(record, NOW) }))
+        .sort(compareAttention)
+        .map((row) => row.deal.id),
+    ).toEqual(['neg-a', 'neg-b', 'neg-c', 'neg-newer', 'lead', 'inactive', 'fresh'])
   })
 })

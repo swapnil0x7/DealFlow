@@ -7,7 +7,10 @@ export function useCommand(id: string, dealId: string) {
   const { operations, bulk, model } = useChanges()
   const single = useStore(operations.store, (state) => state.byId[id])
   const bulkItem = useSyncExternalStore(
-    useCallback((listener) => operations.activity.subscribe(dealId, listener), [operations, dealId]),
+    useCallback(
+      (listener) => operations.activity.subscribe(dealId, listener),
+      [operations, dealId],
+    ),
     useCallback(() => bulk.getItemById(id), [bulk, id]),
   )
   const latest = useSyncExternalStore(
@@ -19,10 +22,19 @@ export function useCommand(id: string, dealId: string) {
   const online = useStore(bulk.store, (state) => state.online)
   // Claims on a different command for this deal can change action eligibility.
   useSyncExternalStore(
-    useCallback((listener) => operations.activity.subscribe(dealId, listener), [operations, dealId]),
+    useCallback(
+      (listener) => operations.activity.subscribe(dealId, listener),
+      [operations, dealId],
+    ),
     useCallback(() => operations.activity.isBlocked(dealId, id), [operations, dealId, id]),
   )
-  return { item: single ?? bulkItem, single: Boolean(single), latest,
-    blocked: operations.activity.isBlocked(dealId, id), expired: single ? singleExpired : bulkExpired,
-    online, groupId: bulk.groupForItem(id) }
+  return {
+    item: single ?? bulkItem,
+    single: Boolean(single),
+    latest,
+    blocked: operations.activity.isBlocked(dealId, id),
+    expired: single ? singleExpired : bulkExpired,
+    online,
+    groupId: bulk.groupForItem(id),
+  }
 }

@@ -1,6 +1,18 @@
 import { ApiError } from './contracts'
-import type { ApiIssue, ChangePage, MoveCommand, MoveResult, OperationStatus, Snapshot } from './contracts'
-import type { SimulationConfiguration, SimulationFault, SimulationSettings } from './simulation-contracts'
+import { isMoveResult, isOperationStatus } from './validation'
+import type {
+  ApiIssue,
+  ChangePage,
+  MoveCommand,
+  MoveResult,
+  OperationStatus,
+  Snapshot,
+} from './contracts'
+import type {
+  SimulationConfiguration,
+  SimulationFault,
+  SimulationSettings,
+} from './simulation-contracts'
 import { changeNotifications } from './change-notifications'
 import type { ChangeNotice, ChangeNotificationSource } from './change-notifications'
 
@@ -25,13 +37,20 @@ export class DealApi {
 
   subscribeChanges(listener: (notice: ChangeNotice) => void): () => void {
     const generation = this.generation
-    return this.notifications.subscribe((notice) => { if (generation === this.generation) listener(notice) })
+    return this.notifications.subscribe((notice) => {
+      if (generation === this.generation) listener(notice)
+    })
   }
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  private async request<T>(
+    path: string,
+    init?: RequestInit,
+    validate?: (value: unknown) => value is T,
+  ): Promise<T> {
     const generation = this.generation
     const assertCurrent = () => {
-      if (generation !== this.generation) throw new ApiError('session_expired', 'This request belongs to an older client session.')
+      if (generation !== this.generation)
+        throw new ApiError('session_expired', 'This request belongs to an older client session.')
     }
     let response: Response
     try {
@@ -50,12 +69,19 @@ export class DealApi {
     assertCurrent()
     if (!response.ok) {
       const issue = (body as { error?: ApiIssue } | null)?.error
-      if (!issue || typeof issue.code !== 'string' || typeof issue.message !== 'string' || typeof issue.retryable !== 'boolean') {
+      if (
+        !issue ||
+        typeof issue.code !== 'string' ||
+        typeof issue.message !== 'string' ||
+        typeof issue.retryable !== 'boolean'
+      ) {
         throw new TransportError(new Error('The API returned an unreadable error response.'))
       }
       const { code, message, retryable } = issue
       throw new ApiError(code, message, retryable)
     }
+    if (validate && !validate(body))
+      throw new TransportError(new Error('The API returned an invalid response.'))
     return body as T
   }
 
@@ -68,28 +94,43 @@ export class DealApi {
   }
 
   private headers(sessionId = this.sessionId): Record<string, string> {
-    if (!sessionId) throw new ApiError('session_expired', 'Load the current snapshot before issuing commands.')
+    if (!sessionId)
+      throw new ApiError('session_expired', 'Load the current snapshot before issuing commands.')
     return { 'Content-Type': 'application/json', 'X-DealDesk-Session': sessionId }
   }
 
   move(command: MoveCommand): Promise<MoveResult> {
-    return this.request(`/deals/${encodeURIComponent(command.dealId)}`, {
-      method: 'PATCH', headers: this.headers(command.sessionId), body: JSON.stringify(command),
-    })
+    return this.request(
+      `/deals/${encodeURIComponent(command.dealId)}`,
+      {
+        method: 'PATCH',
+        headers: this.headers(command.sessionId),
+        body: JSON.stringify(command),
+      },
+      isMoveResult,
+    )
   }
 
-  bulk(commands: readonly MoveCommand[]): Promise<{ results: { mutationId: string; dealId: string; result: MoveResult }[] }> {
+  bulk(
+    commands: readonly MoveCommand[],
+  ): Promise<{ results: { mutationId: string; dealId: string; result: MoveResult }[] }> {
     const sessionId = commands[0]?.sessionId
     if (commands.some((command) => command.sessionId !== sessionId)) {
       throw new ApiError('invalid_request', 'A batch cannot mix simulation sessions.')
     }
     return this.request('/deals/bulk-move', {
-      method: 'POST', headers: this.headers(sessionId), body: JSON.stringify({ commands }),
+      method: 'POST',
+      headers: this.headers(sessionId),
+      body: JSON.stringify({ commands }),
     })
   }
 
-  operation(mutationId: string): Promise<OperationStatus> {
-    return this.request(`/operations/${encodeURIComponent(mutationId)}`, { headers: this.headers() })
+  operation(mutationId: string, signal?: AbortSignal): Promise<OperationStatus> {
+    return this.request(
+      `/operations/${encodeURIComponent(mutationId)}`,
+      { headers: this.headers(), signal },
+      isOperationStatus,
+    )
   }
 
   changes(after: number, signal?: AbortSignal): Promise<ChangePage> {
@@ -98,35 +139,61 @@ export class DealApi {
 
   async resync(signal?: AbortSignal): Promise<Snapshot> {
     const snapshot = await this.request<Snapshot>('/deals', { headers: this.headers(), signal })
-    if (snapshot.sessionId !== this.sessionId) throw new ApiError('session_expired', 'The simulation session has changed. Reload the workspace.')
+    if (snapshot.sessionId !== this.sessionId)
+      throw new ApiError(
+        'session_expired',
+        'The simulation session has changed. Reload the workspace.',
+      )
     return snapshot
   }
 
-  simulation(signal?: AbortSignal): Promise<SimulationConfiguration> { return this.request('/simulation', { signal }) }
+  simulation(signal?: AbortSignal): Promise<SimulationConfiguration> {
+    return this.request('/simulation', { signal })
+  }
 
   private controlHeaders(): Record<string, string> {
-    return { 'Content-Type': 'application/json', ...(this.sessionId ? { 'X-DealDesk-Session': this.sessionId } : {}) }
+    return {
+      'Content-Type': 'application/json',
+      ...(this.sessionId ? { 'X-DealDesk-Session': this.sessionId } : {}),
+    }
   }
 
   configure(settings: Partial<SimulationSettings>): Promise<SimulationConfiguration> {
-    return this.request('/simulation', { method: 'PATCH', headers: this.controlHeaders(), body: JSON.stringify(settings) })
+    return this.request('/simulation', {
+      method: 'PATCH',
+      headers: this.controlHeaders(),
+      body: JSON.stringify(settings),
+    })
   }
 
   forceFault(fault: SimulationFault): Promise<{ ok: true }> {
-    return this.request('/simulation/faults', { method: 'POST', headers: this.controlHeaders(), body: JSON.stringify({ fault }) })
+    return this.request('/simulation/faults', {
+      method: 'POST',
+      headers: this.controlHeaders(),
+      body: JSON.stringify({ fault }),
+    })
   }
 
   forceConflict(dealId: string): Promise<MoveResult> {
-    return this.request('/simulation/conflict', { method: 'POST', headers: this.controlHeaders(), body: JSON.stringify({ dealId }) })
+    return this.request('/simulation/conflict', {
+      method: 'POST',
+      headers: this.controlHeaders(),
+      body: JSON.stringify({ dealId }),
+    })
   }
 
-  invalidate(): void { this.generation++; this.sessionId = undefined }
+  invalidate(): void {
+    this.generation++
+    this.sessionId = undefined
+  }
 
   async reset(seed = 42): Promise<void> {
     this.generation++
     this.sessionId = undefined
     await this.request('/simulation/reset', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seed }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed }),
     })
   }
 }

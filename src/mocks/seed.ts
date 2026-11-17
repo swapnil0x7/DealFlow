@@ -18,15 +18,43 @@ export function seededRandom(seed: number): Random {
 }
 
 const OWNER_NAMES = [
-  'Aarav Shah', 'Diya Rao', 'Kabir Mehta', 'Ananya Das', 'Arjun Nair',
-  'Isha Kapoor', 'Rohan Patel', 'Meera Iyer', 'Vivaan Sen', 'Tara Singh',
-  'Aditya Bose', 'Sana Khan', 'Dev Malhotra', 'Nisha Verma', 'Reyansh Jain',
-  'Priya Menon', 'Kunal Gupta', 'Avni Sethi', 'Neel Joshi', 'Riya Kulkarni',
+  'Aarav Shah',
+  'Diya Rao',
+  'Kabir Mehta',
+  'Ananya Das',
+  'Arjun Nair',
+  'Isha Kapoor',
+  'Rohan Patel',
+  'Meera Iyer',
+  'Vivaan Sen',
+  'Tara Singh',
+  'Aditya Bose',
+  'Sana Khan',
+  'Dev Malhotra',
+  'Nisha Verma',
+  'Reyansh Jain',
+  'Priya Menon',
+  'Kunal Gupta',
+  'Avni Sethi',
+  'Neel Joshi',
+  'Riya Kulkarni',
 ]
 const COMPANIES = ['Atlas', 'Cedar', 'Orbit', 'Meridian', 'Northstar', 'Juniper', 'Prism', 'Summit']
-const INDUSTRIES = ['Systems', 'Foods', 'Logistics', 'Health', 'Energy', 'Retail', 'Labs', 'Finance']
+const INDUSTRIES = [
+  'Systems',
+  'Foods',
+  'Logistics',
+  'Health',
+  'Energy',
+  'Retail',
+  'Labs',
+  'Finance',
+]
 
-export function seedDeals(options: { seed?: number; clock?: Clock } = {}): { deals: Deal[]; owners: Owner[] } {
+export function seedDeals(options: { seed?: number; clock?: Clock } = {}): {
+  deals: Deal[]
+  owners: Owner[]
+} {
   const random = seededRandom(options.seed ?? 42)
   const now = (options.clock ?? Date.now)()
   const owners = OWNER_NAMES.map((name, index) => ({ id: `owner-${index + 1}`, name }))
@@ -42,9 +70,11 @@ export function seedDeals(options: { seed?: number; clock?: Clock } = {}): { dea
         companyName: `${COMPANIES[number % COMPANIES.length]} ${INDUSTRIES[Math.floor(random() * INDUSTRIES.length)]} ${number}`,
         valuePaise: (50_000 + Math.floor(random() * 9_950_001)) * 100,
         ownerId: owners[(number - 1) % owners.length].id,
-        stage, createdAt: new Date(created).toISOString(),
+        stage,
+        createdAt: new Date(created).toISOString(),
         lastActivityAt: activity === null ? null : new Date(activity).toISOString(),
-        updatedAt: new Date(activity ?? created).toISOString(), version: 1,
+        updatedAt: new Date(activity ?? created).toISOString(),
+        version: 1,
       })
     }
   }

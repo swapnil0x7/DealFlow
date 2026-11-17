@@ -1,37 +1,39 @@
-import { createStore } from "zustand/vanilla";
-import { attentionFor } from "../../domain/attention";
-import type { Deal, Owner } from "../../domain/deal";
-import { STAGE_LABELS } from "../../domain/deal";
-import { matchesFilters } from "../../domain/filters";
-import type { PipelineFilters } from "../../domain/filters";
-import type { ConfirmedReadModel } from "../collaboration/read-model";
+import { createStore } from 'zustand/vanilla'
+import { attentionFor } from '../../domain/attention'
+import type { Deal, Owner } from '../../domain/deal'
+import { STAGE_LABELS } from '../../domain/deal'
+import { matchesFilters } from '../../domain/filters'
+import type { PipelineFilters } from '../../domain/filters'
+import type { ConfirmedReadModel } from '../collaboration/read-model'
 
-interface SelectionState {
-  count: number;
-  changed: number;
-  totalValuePaise: number;
-  source: PipelineFilters | null;
-  revision: number;
-  notice: string;
+export interface SelectionChange {
+  readonly added: readonly string[]
+  readonly removed: readonly string[]
 }
 
-export function describeCriteria(
-  filters: PipelineFilters,
-  owners: readonly Owner[],
-): string {
+interface SelectionState {
+  count: number
+  changed: number
+  totalValuePaise: number
+  source: PipelineFilters | null
+  revision: number
+  notice: string
+}
+
+export function describeCriteria(filters: PipelineFilters, owners: readonly Owner[]): string {
   return [
-    filters.view === "mine"
-      ? "My deals"
-      : filters.view === "attention"
-        ? "Needs attention"
-        : "All deals",
+    filters.view === 'mine'
+      ? 'My deals'
+      : filters.view === 'attention'
+        ? 'Needs attention'
+        : 'All deals',
     filters.search && `company contains “${filters.search}”`,
     filters.ownerId &&
       `owner: ${owners.find((owner) => owner.id === filters.ownerId)?.name ?? filters.ownerId}`,
     filters.stage && `stage: ${STAGE_LABELS[filters.stage]}`,
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(' · ')
 }
 
 /** Original immutable reviewed records, independent of grid mounting, sorting, refresh, and resync. */
@@ -42,68 +44,90 @@ export class SelectionService {
     totalValuePaise: 0,
     source: null,
     revision: 0,
-    notice: "",
-  }));
-  private selected = new Map<string, Deal>();
-  private readonly changed = new Set<string>();
-  private readonly listeners = new Set<() => void>();
-  private readonly unsubscribe: () => void;
-  private readonly model: ConfirmedReadModel;
+    notice: '',
+  }))
+  private readonly selected = new Map<string, Deal>()
+  private readonly changed = new Set<string>()
+  private readonly listeners = new Set<(change: SelectionChange) => void>()
+  private totalValuePaise = 0
+  private readonly unsubscribe: () => void
+  private readonly model: ConfirmedReadModel
 
   constructor(model: ConfirmedReadModel) {
-    this.model = model;
+    this.model = model
     this.unsubscribe = model.subscribe((records) => {
-      let changed = false;
+      let changed = false
       records.forEach((record) => {
-        const reviewed = this.selected.get(record.id);
-        if (
-          reviewed &&
-          record.version !== reviewed.version &&
-          !this.changed.has(record.id)
-        ) {
-          this.changed.add(record.id);
-          changed = true;
+        const reviewed = this.selected.get(record.id)
+        if (reviewed && record.version !== reviewed.version && !this.changed.has(record.id)) {
+          this.changed.add(record.id)
+          changed = true
         }
-      });
-      if (changed) this.store.setState({ changed: this.changed.size });
-    });
+      })
+      if (changed) this.store.setState({ changed: this.changed.size })
+    })
   }
 
   records(): readonly Deal[] {
-    return Array.from(this.selected.values());
+    return Array.from(this.selected.values())
   }
   has(id: string): boolean {
-    return this.selected.has(id);
+    return this.selected.has(id)
   }
   isChanged(id: string): boolean {
-    return this.changed.has(id);
+    return this.changed.has(id)
   }
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
+  subscribe(listener: (change: SelectionChange) => void): () => void {
+    this.listeners.add(listener)
     return () => {
-      this.listeners.delete(listener);
-    };
+      this.listeners.delete(listener)
+    }
   }
   dispose(): void {
-    this.unsubscribe();
-    this.listeners.clear();
+    this.unsubscribe()
+    this.listeners.clear()
   }
 
-  /** Grid reports membership only. Existing members keep their originally reviewed versions. */
+  /** One user gesture changes one member; existing members retain their captured versions. */
+  setSelected(record: Deal, selected: boolean, source: PipelineFilters): void {
+    if (this.selected.has(record.id) === selected) return
+    if (selected) this.add(record)
+    else this.remove(record.id)
+    this.publish(source, '', {
+      added: selected ? [record.id] : [],
+      removed: selected ? [] : [record.id],
+    })
+  }
+
   setMembership(records: readonly Deal[], source: PipelineFilters): void {
-    const next = new Map(
-      records.map((record) => [
-        record.id,
-        this.selected.get(record.id) ?? Object.freeze({ ...record }),
-      ]),
-    );
-    if (
-      next.size === this.selected.size &&
-      Array.from(next.keys()).every((id) => this.selected.has(id))
-    )
-      return;
-    this.selected = next;
-    this.publish(source, "");
+    const ids = new Set(records.map((record) => record.id))
+    const removed: string[] = []
+    const added: string[] = []
+    for (const id of this.selected.keys()) {
+      if (!ids.has(id)) {
+        this.remove(id)
+        removed.push(id)
+      }
+    }
+    for (const record of records) {
+      if (!this.selected.has(record.id)) {
+        this.add(record)
+        added.push(record.id)
+      }
+    }
+    if (added.length || removed.length) this.publish(source, '', { added, removed })
+  }
+
+  private add(record: Deal): void {
+    this.selected.set(record.id, Object.freeze({ ...record }))
+    this.totalValuePaise += record.valuePaise
+    if (this.model.get(record.id)?.version !== record.version) this.changed.add(record.id)
+  }
+
+  private remove(id: string): void {
+    this.totalValuePaise -= this.selected.get(id)!.valuePaise
+    this.selected.delete(id)
+    this.changed.delete(id)
   }
 
   selectMatching(filters: PipelineFilters, now: number): void {
@@ -116,37 +140,33 @@ export class SelectionService {
         },
         filters,
       ),
-    );
+    )
     // Selecting all again preserves reviewed versions for members already selected.
-    this.setMembership(records, filters);
+    this.setMembership(records, filters)
     this.store.setState({
       notice:
-        "Selected the latest confirmed matching set. New matches will not join automatically.",
-    });
+        'Selected the latest confirmed matching set. New matches will not join automatically.',
+    })
   }
 
-  clear(reason = "Selection cleared."): void {
-    if (!this.selected.size) return;
-    this.selected.clear();
-    this.publish(null, reason);
+  clear(reason = 'Selection cleared.'): void {
+    if (!this.selected.size) return
+    const removed = Array.from(this.selected.keys())
+    this.selected.clear()
+    this.changed.clear()
+    this.totalValuePaise = 0
+    this.publish(null, reason, { added: [], removed })
   }
 
-  private publish(source: PipelineFilters | null, notice: string): void {
-    this.changed.clear();
-    let totalValuePaise = 0;
-    this.selected.forEach((record) => {
-      totalValuePaise += record.valuePaise;
-      if (this.model.get(record.id)?.version !== record.version)
-        this.changed.add(record.id);
-    });
+  private publish(source: PipelineFilters | null, notice: string, change: SelectionChange): void {
     this.store.setState((state) => ({
       count: this.selected.size,
-      totalValuePaise,
+      totalValuePaise: this.totalValuePaise,
       changed: this.changed.size,
       source: source ? Object.freeze({ ...source }) : null,
       revision: state.revision + 1,
       notice,
-    }));
-    this.listeners.forEach((listener) => listener());
+    }))
+    this.listeners.forEach((listener) => listener(change))
   }
 }

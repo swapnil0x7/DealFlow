@@ -10,9 +10,22 @@ it('indexes the full dataset and agrees on view/filter membership independently 
   const { rows, counts } = projectPipeline(deals, owners, NOW)
   expect(counts.all).toBe(50_000)
   expect(counts.mine).toBe(2_500)
-  expect(counts.attention).toBe(rows.filter((row) => matchesFilters(row, { ...DEFAULT_FILTERS, view: 'attention' })).length)
-  const filtered = rows.filter((row) => matchesFilters(row, { view: 'all', search: 'cedar', ownerId: 'owner-1', stage: 'contacted' }))
-  expect(filtered.map((row) => row.deal.id)).toEqual(deals.filter((record) => record.companyName.toLowerCase().includes('cedar') && record.ownerId === 'owner-1' && record.stage === 'contacted').map((record) => record.id))
+  expect(counts.attention).toBe(
+    rows.filter((row) => matchesFilters(row, { ...DEFAULT_FILTERS, view: 'attention' })).length,
+  )
+  const filtered = rows.filter((row) =>
+    matchesFilters(row, { view: 'all', search: 'cedar', ownerId: 'owner-1', stage: 'contacted' }),
+  )
+  expect(filtered.map((row) => row.deal.id)).toEqual(
+    deals
+      .filter(
+        (record) =>
+          record.companyName.toLowerCase().includes('cedar') &&
+          record.ownerId === 'owner-1' &&
+          record.stage === 'contacted',
+      )
+      .map((record) => record.id),
+  )
   expect(filtered.length).toBeGreaterThan(0)
   expect(rows[0].ownerName).toBe(owners[0].name)
 })
@@ -61,8 +74,18 @@ it('quiet clock checks publish nothing when no attention result changes', () => 
 it('clock catch-up publishes exact membership, urgency and reason changes without changing deal versions', () => {
   const day = 86_400_000
   const records = [
-    { ...deal, id: 'lead', createdAt: new Date(NOW - 2 * day + 30_000).toISOString(), lastActivityAt: new Date(NOW).toISOString() },
-    { ...deal, id: 'negotiation', stage: 'negotiation' as const, lastActivityAt: new Date(NOW - 14 * day + 30_000).toISOString() },
+    {
+      ...deal,
+      id: 'lead',
+      createdAt: new Date(NOW - 2 * day + 30_000).toISOString(),
+      lastActivityAt: new Date(NOW).toISOString(),
+    },
+    {
+      ...deal,
+      id: 'negotiation',
+      stage: 'negotiation' as const,
+      lastActivityAt: new Date(NOW - 14 * day + 30_000).toISOString(),
+    },
     { ...deal, id: 'closed', stage: 'won' as const },
   ]
   const projection = new PipelineProjection(records, data().owners, NOW)
@@ -75,8 +98,15 @@ it('clock catch-up publishes exact membership, urgency and reason changes withou
   expect(counts).toHaveBeenCalledTimes(1)
   const [changed, source] = rows.mock.calls[0]
   expect(source).toBe('time')
-  expect(changed.map((row: { deal: { id: string }; attention: { reason: string } }) => [row.deal.id, row.attention.reason]))
-    .toEqual([['lead', 'New lead waiting 2 days'], ['negotiation', 'Negotiation inactive for 14 days']])
+  expect(
+    changed.map((row: { deal: { id: string }; attention: { reason: string } }) => [
+      row.deal.id,
+      row.attention.reason,
+    ]),
+  ).toEqual([
+    ['lead', 'New lead waiting 2 days'],
+    ['negotiation', 'Negotiation inactive for 14 days'],
+  ])
   expect(changed[0].deal).toBe(records[0])
   expect(changed[0].deal.version).toBe(1)
   projection.refreshTime(NOW + 60_000)
@@ -88,7 +118,17 @@ it('clock catch-up publishes exact membership, urgency and reason changes withou
 })
 
 it('time checks use the newest confirmed records and handle a backwards clock correction', () => {
-  const projection = new PipelineProjection([{ ...deal, createdAt: new Date(NOW - 86_400_000).toISOString(), lastActivityAt: new Date(NOW).toISOString() }], data().owners, NOW)
+  const projection = new PipelineProjection(
+    [
+      {
+        ...deal,
+        createdAt: new Date(NOW - 86_400_000).toISOString(),
+        lastActivityAt: new Date(NOW).toISOString(),
+      },
+    ],
+    data().owners,
+    NOW,
+  )
   const rows = vi.fn()
   projection.subscribeRows(rows)
   projection.refreshTime(NOW + 86_400_000)

@@ -7,7 +7,9 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('grid', { name: 'Sales pipeline deals' })).toBeVisible()
 })
 
-test('keyboard selection, typeahead, cancellation, and returning to All owners work', async ({ page }) => {
+test('keyboard selection, typeahead, cancellation, and returning to All owners work', async ({
+  page,
+}) => {
   const owner = page.getByRole('combobox', { name: 'Owner', exact: true })
   await owner.focus()
   await page.keyboard.press('ArrowDown')
@@ -20,7 +22,10 @@ test('keyboard selection, typeahead, cancellation, and returning to All owners w
   await expect(owner).toBeFocused()
   await expect(page.getByTestId('matching-count')).toContainText('2,500 matching deals')
   await page.keyboard.press('Space')
-  await expect(menu.getByRole('option', { name: 'Riya Kulkarni' })).toHaveAttribute('aria-selected', 'true')
+  await expect(menu.getByRole('option', { name: 'Riya Kulkarni' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   await page.keyboard.press('Home')
   await expect(menu.getByRole('option', { name: 'All owners' })).toBeFocused()
   await page.keyboard.press('Escape')
@@ -31,7 +36,9 @@ test('keyboard selection, typeahead, cancellation, and returning to All owners w
   await expect(page.getByTestId('matching-count')).toContainText('50,000 matching deals')
 })
 
-test('scrolling menus stay inside a narrow viewport, dismiss outside, and pass axe while open', async ({ page }, testInfo) => {
+test('scrolling menus stay inside a narrow viewport, dismiss outside, and pass axe while open', async ({
+  page,
+}, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const owner = page.getByRole('combobox', { name: 'Owner', exact: true })
   await owner.click()
@@ -46,7 +53,14 @@ test('scrolling menus stay inside a narrow viewport, dismiss outside, and pass a
   expect(box!.y + box!.height).toBeLessThanOrEqual(844)
   // Radix traps focus and hides the surrounding page while the popup is open.
   // Audit the active widget here, then audit the whole restored page after dismissal.
-  expect((await new AxeBuilder({ page }).include('[role="listbox"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([])
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .include('[role="listbox"]')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+        .analyze()
+    ).violations,
+  ).toEqual([])
   await page.keyboard.press('Tab')
   await expect(menu.getByRole('option', { name: 'Riya Kulkarni' })).toBeFocused()
   await page.screenshot({ path: testInfo.outputPath('dropdown-narrow.png') })
@@ -59,13 +73,17 @@ test('scrolling menus stay inside a narrow viewport, dismiss outside, and pass a
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })
 
-test('filters and the reusable bulk target dropdown remain independent', async ({ page }, testInfo) => {
+test('filters and the reusable bulk target dropdown remain independent', async ({
+  page,
+}, testInfo) => {
   await page.getByRole('searchbox').fill('Atlas')
   await page.getByRole('button', { name: 'Select all matching', exact: true }).click()
   const target = page.getByRole('combobox', { name: 'Bulk target stage' })
   await selectDropdown(target, 'Won')
   await expect(target).toContainText('Won')
-  await expect(page.getByRole('combobox', { name: 'Stage', exact: true })).toContainText('All stages')
+  await expect(page.getByRole('combobox', { name: 'Stage', exact: true })).toContainText(
+    'All stages',
+  )
   await page.getByRole('button', { name: 'Review bulk move', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('Won')
   await page.keyboard.press('Escape')

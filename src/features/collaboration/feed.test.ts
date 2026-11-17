@@ -9,27 +9,61 @@ import { ChangeNotificationChannel } from '../../api/change-notifications'
 
 function pending<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
   return { promise, resolve }
 }
-const emptyPage = (after = 0): ChangePage => ({ sessionId: 'session-1', changes: [], nextCursor: after, hasMore: false, resyncRequired: false })
-const event = (sequence: number, version = sequence + 1) => ({ sequence, mutationId: `mutation-${sequence}`, actorId: 'owner-2', record: { ...deal, stage: 'won' as const, version } })
+const emptyPage = (after = 0): ChangePage => ({
+  sessionId: 'session-1',
+  changes: [],
+  nextCursor: after,
+  hasMore: false,
+  resyncRequired: false,
+})
+const event = (sequence: number, version = sequence + 1) => ({
+  sequence,
+  mutationId: `mutation-${sequence}`,
+  actorId: 'owner-2',
+  record: { ...deal, stage: 'won' as const, version },
+})
 
 function setup(extra: { onResync?: (snapshot: Snapshot) => void; timeoutMs?: number } = {}) {
   const model = new ConfirmedReadModel(data().deals)
   const channel = new ChangeNotificationChannel()
   const api = {
-    changes: vi.fn(async (after: number, signal?: AbortSignal): Promise<ChangePage> => { void signal; return emptyPage(after) }),
-    resync: vi.fn(async (): Promise<Snapshot> => ({ sessionId: 'session-1', ...data(), cursor: 7 })),
+    changes: vi.fn(async (after: number, signal?: AbortSignal): Promise<ChangePage> => {
+      void signal
+      return emptyPage(after)
+    }),
+    resync: vi.fn(
+      async (): Promise<Snapshot> => ({ sessionId: 'session-1', ...data(), cursor: 7 }),
+    ),
     simulation: vi.fn(async () => ({ ...DEFAULT_SETTINGS, seed: 42, sessionId: 'session-1' })),
-    subscribeChanges: vi.fn((listener: Parameters<ChangeNotificationChannel['subscribe']>[0]) => channel.subscribe(listener)),
+    subscribeChanges: vi.fn((listener: Parameters<ChangeNotificationChannel['subscribe']>[0]) =>
+      channel.subscribe(listener),
+    ),
   }
-  const operations = { confirmChange: vi.fn(), reconcileOutstanding: vi.fn(async () => {}), expireSession: vi.fn() }
-  const feed = new ChangeFeed({ api, operations, model, sessionId: 'session-1', cursor: 0, ...extra })
+  const operations = {
+    confirmChange: vi.fn(),
+    reconcileOutstanding: vi.fn(async () => {}),
+    expireSession: vi.fn(),
+  }
+  const feed = new ChangeFeed({
+    api,
+    operations,
+    model,
+    sessionId: 'session-1',
+    cursor: 0,
+    ...extra,
+  })
   return { feed, model, api, operations, notify: channel.publish.bind(channel) }
 }
 beforeEach(() => vi.useFakeTimers())
-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
+afterEach(() => {
+  vi.clearAllTimers()
+  vi.useRealTimers()
+})
 
 describe('notification-driven single-flight change feed', () => {
   it('performs initial catch-up then makes no idle requests and leaves no scheduled timer', async () => {
@@ -49,9 +83,15 @@ describe('notification-driven single-flight change feed', () => {
     await vi.advanceTimersByTimeAsync(1)
     const first = Array.from({ length: 500 }, (_, index) => event(index + 1))
     const second = Array.from({ length: 500 }, (_, index) => event(index + 501))
-    api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: first, nextCursor: 500, hasMore: true })
+    api.changes.mockResolvedValueOnce({
+      ...emptyPage(),
+      changes: first,
+      nextCursor: 500,
+      hasMore: true,
+    })
     api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: second, nextCursor: 1_000 })
-    for (let cursor = 1; cursor <= 1_000; cursor++) notify({ kind: 'changes', sessionId: 'session-1', cursor })
+    for (let cursor = 1; cursor <= 1_000; cursor++)
+      notify({ kind: 'changes', sessionId: 'session-1', cursor })
     await vi.advanceTimersByTimeAsync(49)
     expect(api.changes).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
@@ -89,7 +129,8 @@ describe('notification-driven single-flight change feed', () => {
     api.changes.mockRejectedValueOnce(new TransportError('second failure'))
     feed.start()
     await vi.advanceTimersByTimeAsync(1)
-    for (let index = 0; index < 50; index++) notify({ kind: 'changes', sessionId: 'session-1', cursor: 1 })
+    for (let index = 0; index < 50; index++)
+      notify({ kind: 'changes', sessionId: 'session-1', cursor: 1 })
     await vi.advanceTimersByTimeAsync(998)
     expect(api.changes).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
@@ -105,7 +146,8 @@ describe('notification-driven single-flight change feed', () => {
 
   it('subscribes once across repeated start, unsubscribes on stop, and catches missed changes on restart', async () => {
     const { feed, api, notify } = setup()
-    feed.start(); feed.start()
+    feed.start()
+    feed.start()
     await vi.advanceTimersByTimeAsync(1)
     expect(api.subscribeChanges).toHaveBeenCalledTimes(1)
     feed.stop()
@@ -140,9 +182,11 @@ describe('notification-driven single-flight change feed', () => {
     const { feed, api } = setup()
     const gate = pending<ChangePage>()
     api.changes.mockReturnValueOnce(gate.promise)
-    feed.start(); feed.start()
+    feed.start()
+    feed.start()
     await vi.advanceTimersByTimeAsync(1_000)
-    feed.wake(); feed.wake()
+    feed.wake()
+    feed.wake()
     await vi.advanceTimersByTimeAsync(5_000)
     expect(api.changes).toHaveBeenCalledTimes(1)
     gate.resolve(emptyPage())
@@ -156,8 +200,15 @@ describe('notification-driven single-flight change feed', () => {
     const { feed, model, api, operations } = setup()
     model.apply([{ ...deal, version: 3, stage: 'lost' }])
     const seen: number[] = []
-    operations.confirmChange.mockImplementation(() => { seen.push(feed.store.getState().cursor) })
-    api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: [event(1, 2)], nextCursor: 1, hasMore: true })
+    operations.confirmChange.mockImplementation(() => {
+      seen.push(feed.store.getState().cursor)
+    })
+    api.changes.mockResolvedValueOnce({
+      ...emptyPage(),
+      changes: [event(1, 2)],
+      nextCursor: 1,
+      hasMore: true,
+    })
     api.changes.mockResolvedValueOnce({ ...emptyPage(), changes: [event(2, 4)], nextCursor: 2 })
     feed.start()
     await vi.advanceTimersByTimeAsync(1_000)
@@ -170,10 +221,17 @@ describe('notification-driven single-flight change feed', () => {
 
   it('resyncs an expired cursor without replacing the read model or captured ID/version snapshots', async () => {
     const observed: number[] = []
-    const { feed, model, api, operations } = setup({ onResync: () => observed.push(model.get(deal.id)!.version) })
+    const { feed, model, api, operations } = setup({
+      onResync: () => observed.push(model.get(deal.id)!.version),
+    })
     const captured = Object.freeze({ id: deal.id, version: model.get(deal.id)!.version })
     api.changes.mockResolvedValueOnce({ ...emptyPage(), resyncRequired: true })
-    api.resync.mockResolvedValueOnce({ sessionId: 'session-1', owners: data().owners, deals: [{ ...deal, version: 8 }], cursor: 7 })
+    api.resync.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      owners: data().owners,
+      deals: [{ ...deal, version: 8 }],
+      cursor: 7,
+    })
     feed.start()
     await vi.advanceTimersByTimeAsync(1_001)
     expect(observed).toEqual([8])
@@ -231,7 +289,10 @@ describe('notification-driven single-flight change feed', () => {
     feed.setNetworkOnline(true)
     await vi.advanceTimersByTimeAsync(1)
     expect(api.changes).toHaveBeenCalledTimes(2)
-    feed.stop(); feed.start(); feed.dispose(); feed.wake()
+    feed.stop()
+    feed.start()
+    feed.dispose()
+    feed.wake()
     await vi.advanceTimersByTimeAsync(5_000)
     expect(api.changes).toHaveBeenCalledTimes(2)
     expect(vi.getTimerCount()).toBe(0)
@@ -269,7 +330,12 @@ describe('notification-driven single-flight change feed', () => {
   it('detects offline simulation after a transport error and stops polling until an explicit wake', async () => {
     const { feed, api } = setup()
     api.changes.mockRejectedValueOnce(new TransportError('offline'))
-    api.simulation.mockResolvedValueOnce({ ...DEFAULT_SETTINGS, seed: 42, sessionId: 'session-1', offline: true })
+    api.simulation.mockResolvedValueOnce({
+      ...DEFAULT_SETTINGS,
+      seed: 42,
+      sessionId: 'session-1',
+      offline: true,
+    })
     feed.start()
     await vi.advanceTimersByTimeAsync(5_000)
     expect(feed.store.getState().status).toBe('offline')
@@ -282,7 +348,9 @@ describe('notification-driven single-flight change feed', () => {
 
   it('does not advance past a failed operation-confirmation hook and safely replays the page', async () => {
     const { feed, api, operations } = setup()
-    operations.confirmChange.mockImplementationOnce(() => { throw new Error('injected processing failure') })
+    operations.confirmChange.mockImplementationOnce(() => {
+      throw new Error('injected processing failure')
+    })
     api.changes.mockResolvedValue({ ...emptyPage(), changes: [event(1)], nextCursor: 1 })
     feed.start()
     await vi.advanceTimersByTimeAsync(1)
@@ -310,7 +378,12 @@ describe('notification-driven single-flight change feed', () => {
   it('also detects a reset session through the offline control-plane probe after a failed read', async () => {
     const { feed, api, operations } = setup()
     api.changes.mockRejectedValueOnce(new TransportError('interrupted during reset'))
-    api.simulation.mockResolvedValueOnce({ ...DEFAULT_SETTINGS, seed: 42, sessionId: 'new-session', offline: true })
+    api.simulation.mockResolvedValueOnce({
+      ...DEFAULT_SETTINGS,
+      seed: 42,
+      sessionId: 'new-session',
+      offline: true,
+    })
     feed.start()
     await vi.advanceTimersByTimeAsync(1_000)
     expect(feed.store.getState().status).toBe('expired')
@@ -328,7 +401,12 @@ describe('notification-driven single-flight change feed', () => {
     feed.start()
     await vi.advanceTimersByTimeAsync(1_000)
     feed.dispose()
-    gate.resolve({ sessionId: 'session-1', ...data(), deals: [{ ...deal, version: 99 }], cursor: 98 })
+    gate.resolve({
+      sessionId: 'session-1',
+      ...data(),
+      deals: [{ ...deal, version: 99 }],
+      cursor: 98,
+    })
     await vi.advanceTimersByTimeAsync(1)
     expect(model.get(deal.id)?.version).toBe(1)
     expect(feed.store.getState().cursor).toBe(0)

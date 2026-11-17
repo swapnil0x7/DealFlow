@@ -13,9 +13,13 @@ async function openWorkspace(page: Page) {
   await expect(grid(page)).toHaveAttribute('aria-rowcount', '50001')
 }
 
-test('full-volume filtering uses all rows, composes criteria, and does not reload the API', async ({ page }, testInfo) => {
+test('full-volume filtering uses all rows, composes criteria, and does not reload the API', async ({
+  page,
+}, testInfo) => {
   let loads = 0
-  page.on('request', (request) => { if (new URL(request.url()).pathname === '/api/deals') loads++ })
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/deals') loads++
+  })
   const start = performance.now()
   await openWorkspace(page)
   const loadMs = performance.now() - start
@@ -42,7 +46,16 @@ test('full-volume filtering uses all rows, composes criteria, and does not reloa
   await expect(count(page)).toContainText('50,000 matching deals')
   await expect(page.getByRole('searchbox')).toHaveValue('')
   await page.screenshot({ path: testInfo.outputPath('workspace.png'), fullPage: true })
-  await testInfo.attach('initial-performance-baseline', { body: JSON.stringify({ loadMs, filterMs, initialMounted, dataset: 50_000, viewport: page.viewportSize() }), contentType: 'application/json' })
+  await testInfo.attach('initial-performance-baseline', {
+    body: JSON.stringify({
+      loadMs,
+      filterMs,
+      initialMounted,
+      dataset: 50_000,
+      viewport: page.viewportSize(),
+    }),
+    contentType: 'application/json',
+  })
 })
 
 test('work views and owner criteria compose with an accessible empty state', async ({ page }) => {
@@ -54,12 +67,17 @@ test('work views and owner criteria compose with an accessible empty state', asy
   await expect(page.locator('.ag-overlay-no-matching-rows-center')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect(count(page)).toContainText('2,500 matching deals')
-  await expect(page.getByRole('button', { name: /^My deals/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: /^My deals/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
   await page.getByRole('button', { name: /^All deals/ }).click()
   await expect(count(page)).toContainText('50,000 matching deals')
 })
 
-test('filter alignment, concise counts, attention help and footer navigation work on desktop and mobile', async ({ page }, testInfo) => {
+test('filter alignment, concise counts, attention help and footer navigation work on desktop and mobile', async ({
+  page,
+}, testInfo) => {
   await openWorkspace(page)
   await page.getByRole('button', { name: /^My deals/ }).click()
   await expect(count(page)).toHaveText('2,500 matching deals')
@@ -107,7 +125,9 @@ test('filter alignment, concise counts, attention help and footer navigation wor
   await page.locator('footer').screenshot({ path: testInfo.outputPath('footer-mobile.png') })
 })
 
-test('keyboard navigation reaches off-screen rows and leaves the grid predictably', async ({ page }, testInfo) => {
+test('keyboard navigation reaches off-screen rows and leaves the grid predictably', async ({
+  page,
+}, testInfo) => {
   await openWorkspace(page)
   const firstCell = page.locator('.ag-row[row-index="0"] [col-id="company"]')
   await page.getByRole('searchbox').focus()
@@ -138,14 +158,29 @@ test('keyboard navigation reaches off-screen rows and leaves the grid predictabl
   await expect(page.getByRole('link', { name: 'Back to filters' })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('searchbox')).toBeFocused()
-  await testInfo.attach('keyboard-scroll-baseline', { body: JSON.stringify({ lastRowMs }), contentType: 'application/json' })
+  await testInfo.attach('keyboard-scroll-baseline', {
+    body: JSON.stringify({ lastRowMs }),
+    contentType: 'application/json',
+  })
 })
 
 const NOW = Date.parse('2026-11-14T12:00:00Z')
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString()
-const makeDeal = (id: string, stage: Deal['stage'], inactiveDays: number, valuePaise = 100_000_00): Deal => ({
-  id, companyName: id, ownerId: 'owner-1', stage, valuePaise, createdAt: ago(30),
-  lastActivityAt: ago(inactiveDays), updatedAt: ago(0), version: 1,
+const makeDeal = (
+  id: string,
+  stage: Deal['stage'],
+  inactiveDays: number,
+  valuePaise = 100_000_00,
+): Deal => ({
+  id,
+  companyName: id,
+  ownerId: 'owner-1',
+  stage,
+  valuePaise,
+  createdAt: ago(30),
+  lastActivityAt: ago(inactiveDays),
+  updatedAt: ago(0),
+  version: 1,
 })
 const fixtures: Deal[] = [
   makeDeal('Alpha closed', 'won', 30),
@@ -175,12 +210,21 @@ async function useFixtures(page: Page, records = fixtures, fixedTime = true) {
   await expect(grid(page)).toBeVisible()
 }
 
-test('attention reasons and priority order match explicit fixed-date examples; user sorting stays available', async ({ page }) => {
+test('attention reasons and priority order match explicit fixed-date examples; user sorting stays available', async ({
+  page,
+}) => {
   await useFixtures(page)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
   await expect(count(page)).toContainText('6 matching deals')
   const companies = page.locator('.ag-row [col-id="company"] strong')
-  await expect(companies).toHaveText(['Echo negotiation', 'Foxtrot negotiation', 'Delta negotiation', 'Charlie lead', 'Bravo inactive', 'Hotel no activity'])
+  await expect(companies).toHaveText([
+    'Echo negotiation',
+    'Foxtrot negotiation',
+    'Delta negotiation',
+    'Charlie lead',
+    'Bravo inactive',
+    'Hotel no activity',
+  ])
   await expect(page.getByText('New lead waiting 2 days', { exact: true })).toBeVisible()
   await expect(page.getByText('Negotiation inactive for 14 days', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'How attention works', exact: true }).click()
@@ -188,19 +232,33 @@ test('attention reasons and priority order match explicit fixed-date examples; u
   await page.getByRole('button', { name: 'How attention works', exact: true }).click()
   await page.getByRole('columnheader', { name: 'Company', exact: true }).focus()
   await page.keyboard.press('Enter')
-  await expect(companies).toHaveText(['Bravo inactive', 'Charlie lead', 'Delta negotiation', 'Echo negotiation', 'Foxtrot negotiation', 'Hotel no activity'])
+  await expect(companies).toHaveText([
+    'Bravo inactive',
+    'Charlie lead',
+    'Delta negotiation',
+    'Echo negotiation',
+    'Foxtrot negotiation',
+    'Hotel no activity',
+  ])
   await expect(page.getByText(/^Sorted by /)).toContainText('Company ascending')
 })
 
-test('time-based priority refresh is deferred during active work and applied explicitly', async ({ page }, testInfo) => {
+test('time-based priority refresh is deferred during active work and applied explicitly', async ({
+  page,
+}, testInfo) => {
   await page.clock.install({ time: NOW })
-  const upcoming = { ...makeDeal('Upcoming lead', 'new-lead', 0), createdAt: new Date(NOW - 2 * 86_400_000 + 30_000).toISOString() }
+  const upcoming = {
+    ...makeDeal('Upcoming lead', 'new-lead', 0),
+    createdAt: new Date(NOW - 2 * 86_400_000 + 30_000).toISOString(),
+  }
   await useFixtures(page, [upcoming], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
   await expect(count(page)).toContainText('0 matching deals')
   await page.getByRole('searchbox').focus()
   await page.clock.fastForward(60_001)
-  await expect(page.getByText('Attention priorities changed. Refresh to update this list.')).toBeVisible()
+  await expect(
+    page.getByText('Attention priorities changed. Refresh to update this list.'),
+  ).toBeVisible()
   await expect(page.getByRole('button', { name: /^Needs attention/ })).toContainText('1')
   await expect(count(page)).toContainText('0 displayed deals')
   await expect(page.getByRole('searchbox')).toBeFocused()
@@ -211,14 +269,22 @@ test('time-based priority refresh is deferred during active work and applied exp
   await expect(page.getByText('New lead waiting 2 days', { exact: true })).toBeVisible()
 })
 
-const upcomingLead = (): Deal => ({ ...makeDeal('Upcoming lead', 'new-lead', 0), createdAt: new Date(NOW - 2 * 86_400_000 + 30_000).toISOString() })
-const refreshPriorities = (page: Page) => page.getByRole('button', { name: 'Refresh priorities', exact: true })
+const upcomingLead = (): Deal => ({
+  ...makeDeal('Upcoming lead', 'new-lead', 0),
+  createdAt: new Date(NOW - 2 * 86_400_000 + 30_000).toISOString(),
+})
+const refreshPriorities = (page: Page) =>
+  page.getByRole('button', { name: 'Refresh priorities', exact: true })
 
-test('minutes of focused work without a real attention change produce no reminder or API reload', async ({ page }) => {
+test('minutes of focused work without a real attention change produce no reminder or API reload', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
   await useFixtures(page, fixtures, false)
   let reloads = 0
-  page.on('request', (request) => { if (new URL(request.url()).pathname === '/api/deals') reloads++ })
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/deals') reloads++
+  })
   await page.getByRole('searchbox').focus()
   await page.clock.fastForward(5 * 60_000)
   await expect(refreshPriorities(page)).toHaveCount(0)
@@ -228,7 +294,9 @@ test('minutes of focused work without a real attention change produce no reminde
   expect(reloads).toBe(0)
 })
 
-test('All deals updates attention quietly while work is focused; the next minute does not create an alert', async ({ page }) => {
+test('All deals updates attention quietly while work is focused; the next minute does not create an alert', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
   await useFixtures(page, [upcomingLead()], false)
   await page.getByRole('searchbox').focus()
@@ -242,9 +310,20 @@ test('All deals updates attention quietly while work is focused; the next minute
   await expect(page.getByRole('searchbox')).toBeFocused()
 })
 
-test('reason-only day changes and urgency changes that leave the order intact do not ask for refresh', async ({ page }) => {
+test('reason-only day changes and urgency changes that leave the order intact do not ask for refresh', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
-  await useFixtures(page, [{ ...makeDeal('Negotiation', 'negotiation', 0), lastActivityAt: new Date(NOW - 14 * 86_400_000 + 30_000).toISOString() }], false)
+  await useFixtures(
+    page,
+    [
+      {
+        ...makeDeal('Negotiation', 'negotiation', 0),
+        lastActivityAt: new Date(NOW - 14 * 86_400_000 + 30_000).toISOString(),
+      },
+    ],
+    false,
+  )
   await page.getByRole('button', { name: /^Needs attention/ }).click()
   await page.clock.fastForward(60_001)
   await expect(page.getByText('Negotiation inactive for 14 days', { exact: true })).toBeVisible()
@@ -254,7 +333,9 @@ test('reason-only day changes and urgency changes that leave the order intact do
   await expect(refreshPriorities(page)).toHaveCount(0)
 })
 
-test('a threshold outside the current filters updates its badge without a refresh prompt', async ({ page }) => {
+test('a threshold outside the current filters updates its badge without a refresh prompt', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
   await useFixtures(page, [upcomingLead()], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
@@ -265,9 +346,14 @@ test('a threshold outside the current filters updates its badge without a refres
   await expect(refreshPriorities(page)).toHaveCount(0)
 })
 
-test('a real priority reorder waits once and explicit refresh preserves the focused deal and selection', async ({ page }) => {
+test('a real priority reorder waits once and explicit refresh preserves the focused deal and selection', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
-  const negotiation = { ...makeDeal('Negotiation', 'negotiation', 0), lastActivityAt: new Date(NOW - 14 * 86_400_000 + 30_000).toISOString() }
+  const negotiation = {
+    ...makeDeal('Negotiation', 'negotiation', 0),
+    lastActivityAt: new Date(NOW - 14 * 86_400_000 + 30_000).toISOString(),
+  }
   await useFixtures(page, [negotiation, makeDeal('Lead', 'new-lead', 2)], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
   const companies = page.locator('.ag-row [col-id="company"] strong')
@@ -304,7 +390,9 @@ test('an idle workspace applies new attention membership quietly', async ({ page
   await expect(refreshPriorities(page)).toHaveCount(0)
 })
 
-test('a pending change applies quietly when focus leaves the workspace and no selection is held', async ({ page }) => {
+test('a pending change applies quietly when focus leaves the workspace and no selection is held', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
   await useFixtures(page, [upcomingLead()], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
@@ -318,9 +406,14 @@ test('a pending change applies quietly when focus leaves the workspace and no se
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
 })
 
-test('a clock-driven reorder preserves an open stage editor until the user cancels it', async ({ page }) => {
+test('a clock-driven reorder preserves an open stage editor until the user cancels it', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
-  const negotiation = { ...makeDeal('Negotiation', 'negotiation', 0), lastActivityAt: new Date(NOW - 14 * 86_400_000 + 30_000).toISOString() }
+  const negotiation = {
+    ...makeDeal('Negotiation', 'negotiation', 0),
+    lastActivityAt: new Date(NOW - 14 * 86_400_000 + 30_000).toISOString(),
+  }
   await useFixtures(page, [negotiation, makeDeal('Lead', 'new-lead', 2)], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
   const cell = page.locator('.ag-row[row-id="Negotiation"] [col-id="stage"]')
@@ -334,17 +427,22 @@ test('a clock-driven reorder preserves an open stage editor until the user cance
   await page.keyboard.press('Escape')
   await expect(cell.getByRole('combobox')).toHaveCount(0)
   await expect(refreshPriorities(page)).toBeVisible()
-  await expect(page.locator('.ag-row [col-id="company"] strong')).toHaveText(['Lead', 'Negotiation'])
+  await expect(page.locator('.ag-row [col-id="company"] strong')).toHaveText([
+    'Lead',
+    'Negotiation',
+  ])
   await expect(page.getByText('Negotiation inactive for 14 days', { exact: true })).toBeVisible()
   await expect(page.getByTestId('operation-result')).toHaveCount(0)
 })
 
-test('background tabs suspend priority work and catch up on return without replaying reminders', async ({ page }) => {
+test('background tabs suspend priority work and catch up on return without replaying reminders', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
   await useFixtures(page, [upcomingLead()], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
   await page.evaluate(() => {
-    (document.activeElement as HTMLElement)?.blur()
+    ;(document.activeElement as HTMLElement)?.blur()
     Object.defineProperty(document, 'hidden', { configurable: true, value: true })
     document.dispatchEvent(new Event('visibilitychange'))
   })
@@ -360,7 +458,9 @@ test('background tabs suspend priority work and catch up on return without repla
   await expect(refreshPriorities(page)).toHaveCount(0)
 })
 
-test('recent scrolling protects an unfocused list until the workspace becomes idle', async ({ page }) => {
+test('recent scrolling protects an unfocused list until the workspace becomes idle', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
   await useFixtures(page, [upcomingLead()], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
@@ -375,7 +475,9 @@ test('recent scrolling protects an unfocused list until the workspace becomes id
   await expect(refreshPriorities(page)).toHaveCount(0)
 })
 
-test('a portaled dropdown stays open when a threshold changes the active view', async ({ page }) => {
+test('a portaled dropdown stays open when a threshold changes the active view', async ({
+  page,
+}) => {
   await page.clock.install({ time: NOW })
   await useFixtures(page, [upcomingLead()], false)
   await page.getByRole('button', { name: /^Needs attention/ }).click()
@@ -393,7 +495,9 @@ test('a portaled dropdown stays open when a threshold changes the active view', 
   await expect(count(page)).toContainText('1 matching deals')
 })
 
-test('workspace controls and rendered table pass axe; narrow view keeps overflow inside the table', async ({ page }) => {
+test('workspace controls and rendered table pass axe; narrow view keeps overflow inside the table', async ({
+  page,
+}) => {
   await openWorkspace(page)
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])
@@ -401,10 +505,11 @@ test('workspace controls and rendered table pass axe; narrow view keeps overflow
   await expect(page.getByRole('searchbox')).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'Owner', exact: true })).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'Stage', exact: true })).toBeVisible()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  )
   await expect(grid(page)).toBeVisible()
 })
-
 
 test('an empty repository has an explicit empty-data state', async ({ page }) => {
   await useFixtures(page, [])

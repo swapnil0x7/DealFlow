@@ -1,4 +1,4 @@
-import type { ItemState } from './service'
+import type { ItemState } from '../../domain/command'
 
 export interface Outcome {
   readonly status: ItemState
@@ -8,8 +8,11 @@ export interface Outcome {
 
 /** History retains original outcomes; only unresolved decisions contribute to the action badge. */
 export function needsAction(item: Outcome): boolean {
-  return item.status === 'failed' || item.status === 'unconfirmed' ||
+  return (
+    item.status === 'failed' ||
+    item.status === 'unconfirmed' ||
     (item.status === 'conflicted' && !item.reviewedBy && item.keptVersion === undefined)
+  )
 }
 
 export function resolution(item: Outcome): 'kept' | 'replaced' | undefined {

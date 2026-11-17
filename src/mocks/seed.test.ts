@@ -9,14 +9,24 @@ describe('deterministic full-volume seed (T01)', () => {
     expect(deals).toHaveLength(50_000)
     expect(new Set(deals.map((deal) => deal.id)).size).toBe(50_000)
     expect(owners).toHaveLength(20)
-    expect(new Set(deals.map((deal) => deal.ownerId))).toEqual(new Set(owners.map((owner) => owner.id)))
-    expect(STAGES.map((stage) => deals.filter((deal) => deal.stage === stage).length)).toEqual([...STAGE_POPULATIONS])
+    expect(new Set(deals.map((deal) => deal.ownerId))).toEqual(
+      new Set(owners.map((owner) => owner.id)),
+    )
+    expect(STAGES.map((stage) => deals.filter((deal) => deal.stage === stage).length)).toEqual([
+      ...STAGE_POPULATIONS,
+    ])
     expect(deals.some((deal) => deal.lastActivityAt === null)).toBe(true)
     for (const deal of deals) {
-      if (!Number.isSafeInteger(deal.valuePaise) || deal.valuePaise <= 0 || deal.version !== 1 ||
-        Date.parse(deal.createdAt) > NOW || Date.parse(deal.updatedAt) < Date.parse(deal.createdAt) ||
+      if (
+        !Number.isSafeInteger(deal.valuePaise) ||
+        deal.valuePaise <= 0 ||
+        deal.version !== 1 ||
+        Date.parse(deal.createdAt) > NOW ||
+        Date.parse(deal.updatedAt) < Date.parse(deal.createdAt) ||
         Date.parse(deal.updatedAt) > NOW ||
-        (deal.lastActivityAt !== null && Date.parse(deal.lastActivityAt) < Date.parse(deal.createdAt))) {
+        (deal.lastActivityAt !== null &&
+          Date.parse(deal.lastActivityAt) < Date.parse(deal.createdAt))
+      ) {
         throw new Error(`Invalid seed record: ${deal.id}`)
       }
     }

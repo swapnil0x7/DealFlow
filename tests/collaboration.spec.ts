@@ -12,9 +12,12 @@ async function setup(page: Page) {
   await page.goto('/')
   await expect(page.getByRole('grid', { name: 'Sales pipeline deals' })).toBeVisible()
   const snapshot = await page.evaluate(async () => {
-    await fetch('/api/simulation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 }) })
-    return await (await fetch('/api/deals')).json() as Snapshot
+    await fetch('/api/simulation', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 }),
+    })
+    return (await (await fetch('/api/deals')).json()) as Snapshot
   })
   const record = snapshot.deals.at(-1)!
   await page.getByRole('searchbox').fill(record.companyName)
@@ -25,19 +28,33 @@ async function setup(page: Page) {
 
 async function remote(page: Page, snapshot: Snapshot, stage: Stage, version: number) {
   const id = snapshot.deals.at(-1)!.id
-  await page.evaluate(async ({ id, sessionId, stage, version }) => {
-    const response = await fetch(`/api/deals/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-DealDesk-Session': sessionId },
-      body: JSON.stringify({ expectedVersion: version, stage, actorId: 'owner-2', mutationId: crypto.randomUUID() }) })
-    const result = await response.json()
-    if (result.status !== 'succeeded') throw new Error(`Teammate move failed: ${JSON.stringify(result)}`)
-  }, { id, sessionId: snapshot.sessionId, stage, version })
+  await page.evaluate(
+    async ({ id, sessionId, stage, version }) => {
+      const response = await fetch(`/api/deals/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-DealDesk-Session': sessionId },
+        body: JSON.stringify({
+          expectedVersion: version,
+          stage,
+          actorId: 'owner-2',
+          mutationId: crypto.randomUUID(),
+        }),
+      })
+      const result = await response.json()
+      if (result.status !== 'succeeded')
+        throw new Error(`Teammate move failed: ${JSON.stringify(result)}`)
+    },
+    { id, sessionId: snapshot.sessionId, stage, version },
+  )
 }
 
 async function chooseContacted(page: Page) {
   await chooseStage(page, 'contacted')
 }
 
-test('live changes preserve focus and filtered row identity, pause while hidden, and catch up without full reloads', async ({ page }) => {
+test('live changes preserve focus and filtered row identity, pause while hidden, and catch up without full reloads', async ({
+  page,
+}) => {
   await page.clock.install()
   let fullLoads = 0
   let polls = 0
@@ -47,7 +64,10 @@ test('live changes preserve focus and filtered row identity, pause while hidden,
     if (path === '/api/changes') polls++
   })
   const { record, snapshot, row, stage } = await setup(page)
-  await selectDropdown(page.getByRole('combobox', { name: 'Stage', exact: true }), STAGE_LABELS[record.stage])
+  await selectDropdown(
+    page.getByRole('combobox', { name: 'Stage', exact: true }),
+    STAGE_LABELS[record.stage],
+  )
   await stage.focus()
   const originalIndex = await row.getAttribute('row-index')
   const loads = fullLoads
@@ -79,7 +99,9 @@ test('live changes preserve focus and filtered row identity, pause while hidden,
   await expect(page.getByRole('searchbox')).toBeFocused()
 })
 
-test('a teammate update during editing never silently replaces the captured version; Escape drains deferred values', async ({ page }) => {
+test('a teammate update during editing never silently replaces the captured version; Escape drains deferred values', async ({
+  page,
+}) => {
   const commands: Record<string, unknown>[] = []
   page.on('request', (request) => {
     if (request.method() === 'PATCH' && /\/api\/deals\//.test(request.url())) {
@@ -111,14 +133,20 @@ test('a teammate update during editing never silently replaces the captured vers
   await expect(stage).toContainText('Negotiation')
 })
 
-test('a matching feed event confirms a save before a delayed HTTP failure without retrying or regressing a newer record', async ({ page }) => {
+test('a matching feed event confirms a save before a delayed HTTP failure without retrying or regressing a newer record', async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     const originalFetch = window.fetch.bind(window)
     window.fetch = async (input, init) => {
       const response = await originalFetch(input, init)
-      if (init?.method === 'PATCH' && String(input).includes('/api/deals/') && JSON.parse(String(init.body)).actorId === 'owner-1') {
+      if (
+        init?.method === 'PATCH' &&
+        String(input).includes('/api/deals/') &&
+        JSON.parse(String(init.body)).actorId === 'owner-1'
+      ) {
         await new Promise<void>((resolve) => {
-          (window as Window & { releaseSave?: () => void }).releaseSave = resolve
+          ;(window as Window & { releaseSave?: () => void }).releaseSave = resolve
         })
         document.documentElement.dataset.lateSaveError = 'delivered'
         throw new TypeError('Response interrupted after commit')
@@ -140,11 +168,17 @@ test('a matching feed event confirms a save before a delayed HTTP failure withou
   await expect(page.locator('html')).toHaveAttribute('data-late-save-error', 'delivered')
   await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'succeeded')
   await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
-  const saved = await page.evaluate(async (id) => (await (await fetch('/api/deals')).json() as Snapshot).deals.find((item) => item.id === id), record.id)
+  const saved = await page.evaluate(
+    async (id) =>
+      ((await (await fetch('/api/deals')).json()) as Snapshot).deals.find((item) => item.id === id),
+    record.id,
+  )
   expect(saved?.version).toBe(record.version + 2)
 })
 
-test('simulation controls generate teammate writes, pause offline feed reads, reconnect, and work by keyboard', async ({ page }, testInfo) => {
+test('simulation controls generate teammate writes, pause offline feed reads, reconnect, and work by keyboard', async ({
+  page,
+}, testInfo) => {
   await page.clock.install()
   let fullLoads = 0
   let polls = 0
@@ -157,7 +191,8 @@ test('simulation controls generate teammate writes, pause offline feed reads, re
   const initialLoads = fullLoads
   expect(initialLoads).toBeGreaterThan(0)
   const trigger = page.getByRole('button', { name: 'Simulation', exact: true })
-  await trigger.focus(); await page.keyboard.press('Enter')
+  await trigger.focus()
+  await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Simulation controls' })
   await dialog.getByLabel('Minimum save delay (ms)').fill('0')
   await dialog.getByLabel('Maximum save delay (ms)').fill('0')
@@ -165,14 +200,21 @@ test('simulation controls generate teammate writes, pause offline feed reads, re
   await dialog.getByLabel('Teammate interval (ms)').fill('500')
   await dialog.getByRole('checkbox', { name: 'Simulate teammate activity' }).focus()
   await page.keyboard.press('Space')
-  await dialog.getByRole('button', { name: 'Apply settings' }).focus(); await page.keyboard.press('Enter')
+  await dialog.getByRole('button', { name: 'Apply settings' }).focus()
+  await page.keyboard.press('Enter')
   await expect(dialog.getByRole('status')).toHaveText('Simulation settings applied.')
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
-  await dialog.evaluate((element) => { element.scrollTop = 0 })
+  await dialog.evaluate((element) => {
+    element.scrollTop = 0
+  })
   await page.screenshot({ path: testInfo.outputPath('simulation-controls.png'), fullPage: true })
   await page.keyboard.press('Escape')
   await expect(trigger).toBeFocused()
-  await expect.poll(async () => Number((await page.getByText(/updates received$/).textContent())?.split(' ')[0])).toBeGreaterThan(0)
+  await expect
+    .poll(async () =>
+      Number((await page.getByText(/updates received$/).textContent())?.split(' ')[0]),
+    )
+    .toBeGreaterThan(0)
   expect(fullLoads).toBe(initialLoads)
   await trigger.click()
   await dialog.getByRole('checkbox', { name: 'Offline simulation' }).check()
@@ -189,7 +231,9 @@ test('simulation controls generate teammate writes, pause offline feed reads, re
   expect(fullLoads).toBe(initialLoads)
 })
 
-test('the unseen-edit scenario targets the last focused deal and leads to explicit conflict review', async ({ page }) => {
+test('the unseen-edit scenario targets the last focused deal and leads to explicit conflict review', async ({
+  page,
+}) => {
   const { stage, record } = await setup(page)
   await stage.locator('..').locator('[col-id="company"]').click()
   await page.getByRole('button', { name: 'Simulation', exact: true }).click()
@@ -208,13 +252,20 @@ test('the unseen-edit scenario targets the last focused deal and leads to explic
   await expect(page.getByRole('button', { name: 'Review conflict' })).toBeVisible()
 })
 
-test('warned reset cancels old saves and clears filters, results, focus target, and live-update state', async ({ page }) => {
+test('warned reset cancels old saves and clears filters, results, focus target, and live-update state', async ({
+  page,
+}) => {
   await page.clock.install()
   const { record, stage, snapshot } = await setup(page)
   await page.evaluate(async () => {
-    await fetch('/api/simulation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ minSaveDelayMs: 3_000, maxSaveDelayMs: 3_000 }) })
+    await fetch('/api/simulation', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minSaveDelayMs: 3_000, maxSaveDelayMs: 3_000 }),
+    })
   })
-  await stage.focus(); await page.keyboard.press('Enter')
+  await stage.focus()
+  await page.keyboard.press('Enter')
   await expect(page.getByRole('listbox')).toBeVisible()
   await chooseContacted(page)
   await expect(page.getByTestId('stage-feedback')).toHaveAttribute('data-state', 'saving')
@@ -224,30 +275,45 @@ test('warned reset cancels old saves and clears filters, results, focus target, 
   await expect(dialog.getByText(/Reset clears saved changes/)).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Cancel reset' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Cancel reset' }).click()
-  expect((await page.evaluate(async () => await (await fetch('/api/deals')).json() as Snapshot)).sessionId).toBe(snapshot.sessionId)
+  expect(
+    (await page.evaluate(async () => (await (await fetch('/api/deals')).json()) as Snapshot))
+      .sessionId,
+  ).toBe(snapshot.sessionId)
   await dialog.getByRole('button', { name: 'Reset demo…', exact: true }).click()
   await dialog.getByRole('button', { name: 'Confirm reset', exact: true }).click()
   await expect(page.getByRole('searchbox')).toHaveValue('')
   await expect(page.getByTestId('matching-count')).toContainText('50,000 matching deals')
   await expect(page.getByTestId('operation-result')).toHaveCount(0)
   await page.clock.fastForward(4_000)
-  const next = await page.evaluate(async () => await (await fetch('/api/deals')).json() as Snapshot)
+  const next = await page.evaluate(
+    async () => (await (await fetch('/api/deals')).json()) as Snapshot,
+  )
   expect(next.sessionId).not.toBe(snapshot.sessionId)
-  expect(next.deals.find((item) => item.id === record.id)).toMatchObject({ stage: record.stage, version: 1 })
+  expect(next.deals.find((item) => item.id === record.id)).toMatchObject({
+    stage: record.stage,
+    version: 1,
+  })
   await openChanges(page)
   await expect(page.getByTestId('operation-result')).toHaveCount(0)
   await closeChanges(page)
   await page.getByRole('button', { name: 'Simulation', exact: true }).click()
   await expect(dialog).toContainText('Focus a deal in the table first')
-  await expect(dialog.getByRole('checkbox', { name: 'Simulate teammate activity' })).not.toBeChecked()
+  await expect(
+    dialog.getByRole('checkbox', { name: 'Simulate teammate activity' }),
+  ).not.toBeChecked()
 })
 
-test('an expired feed cursor resyncs once and preserves a version captured by an open editor', async ({ page }) => {
+test('an expired feed cursor resyncs once and preserves a version captured by an open editor', async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     const originalFetch = window.fetch.bind(window)
     window.fetch = async (input, init) => {
       const response = await originalFetch(input, init)
-      if (String(input).includes('/api/changes?') && document.documentElement.dataset.expireFeed === 'yes') {
+      if (
+        String(input).includes('/api/changes?') &&
+        document.documentElement.dataset.expireFeed === 'yes'
+      ) {
         delete document.documentElement.dataset.expireFeed
         const body = await response.json()
         return Response.json({ ...body, changes: [], resyncRequired: true, hasMore: false })
@@ -265,10 +331,13 @@ test('an expired feed cursor resyncs once and preserves a version captured by an
     }
   })
   const { record, snapshot, stage } = await setup(page)
-  await stage.focus(); await page.keyboard.press('Enter')
+  await stage.focus()
+  await page.keyboard.press('Enter')
   await expect(page.getByRole('listbox')).toBeVisible()
   const initialLoads = fullLoads
-  await page.evaluate(() => { document.documentElement.dataset.expireFeed = 'yes' })
+  await page.evaluate(() => {
+    document.documentElement.dataset.expireFeed = 'yes'
+  })
   await remote(page, snapshot, 'won', record.version)
   await expect.poll(() => fullLoads).toBe(initialLoads + 1)
   await expect(page.getByTestId('connection-status')).toHaveText('Live updates connected')
@@ -278,13 +347,18 @@ test('an expired feed cursor resyncs once and preserves a version captured by an
   expect(fullLoads).toBe(initialLoads + 1)
 })
 
-test('full-volume live updates preserve off-screen navigation and scroll until an explicit refresh reorders the same deal', async ({ page }) => {
+test('full-volume live updates preserve off-screen navigation and scroll until an explicit refresh reorders the same deal', async ({
+  page,
+}) => {
   await page.goto('/')
   const grid = page.getByRole('grid', { name: 'Sales pipeline deals' })
   await expect(grid).toHaveAttribute('aria-rowcount', '50001')
   await page.evaluate(async () => {
-    await fetch('/api/simulation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 }) })
+    await fetch('/api/simulation', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 }),
+    })
   })
   await page.getByRole('columnheader', { name: 'Stage', exact: true }).click()
   await page.locator('.ag-row[row-index="0"] [col-id="company"]').focus()
@@ -293,17 +367,29 @@ test('full-volume live updates preserve off-screen navigation and scroll until a
   const id = await lastRow.getAttribute('row-id')
   const cell = lastRow.locator('[col-id="status"]')
   await expect(cell).toBeFocused()
-  const scrollPositions = () => grid.evaluate((root) => [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))]
-    .filter((element) => element.scrollTop > 0).map((element) => ({ className: element.getAttribute('class'), top: element.scrollTop })))
+  const scrollPositions = () =>
+    grid.evaluate((root) =>
+      [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))]
+        .filter((element) => element.scrollTop > 0)
+        .map((element) => ({ className: element.getAttribute('class'), top: element.scrollTop })),
+    )
   const before = await scrollPositions()
   expect(before.length).toBeGreaterThan(0)
   await page.evaluate(async (id) => {
-    const snapshot = await (await fetch('/api/deals')).json() as Snapshot
+    const snapshot = (await (await fetch('/api/deals')).json()) as Snapshot
     const record = snapshot.deals.find((item) => item.id === id)!
-    const result = await (await fetch(`/api/deals/${id}`, { method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-DealDesk-Session': snapshot.sessionId },
-      body: JSON.stringify({ stage: 'new-lead', expectedVersion: record.version, mutationId: crypto.randomUUID(), actorId: 'owner-2' }),
-    })).json()
+    const result = await (
+      await fetch(`/api/deals/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-DealDesk-Session': snapshot.sessionId },
+        body: JSON.stringify({
+          stage: 'new-lead',
+          expectedVersion: record.version,
+          mutationId: crypto.randomUUID(),
+          actorId: 'owner-2',
+        }),
+      })
+    ).json()
     if (result.status !== 'succeeded') throw new Error('Teammate edit failed')
   }, id)
   await expect(lastRow.getByTestId('deal-stage')).toHaveText('New Lead')
@@ -316,15 +402,27 @@ test('full-volume live updates preserve off-screen navigation and scroll until a
   expect(await moved.getAttribute('row-index')).not.toBe('49999')
 })
 
-test('simulation form waits for a delayed settings read so it cannot overwrite in-progress edits', async ({ page }) => {
+test('simulation form waits for a delayed settings read so it cannot overwrite in-progress edits', async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     const original = window.fetch.bind(window)
     window.fetch = async (input, init) => {
-      const state = window as unknown as { holdSimulationRead?: boolean; releaseSimulationRead?: () => void }
-      const path = new URL(input instanceof Request ? input.url : String(input), location.href).pathname
-      if (state.holdSimulationRead && path === '/api/simulation' && (init?.method ?? 'GET') === 'GET') {
+      const state = window as unknown as {
+        holdSimulationRead?: boolean
+        releaseSimulationRead?: () => void
+      }
+      const path = new URL(input instanceof Request ? input.url : String(input), location.href)
+        .pathname
+      if (
+        state.holdSimulationRead &&
+        path === '/api/simulation' &&
+        (init?.method ?? 'GET') === 'GET'
+      ) {
         state.holdSimulationRead = false
-        await new Promise<void>((resolve) => { state.releaseSimulationRead = resolve })
+        await new Promise<void>((resolve) => {
+          state.releaseSimulationRead = resolve
+        })
       }
       return original(input, init)
     }
@@ -342,8 +440,18 @@ test('simulation form waits for a delayed settings read so it cannot overwrite i
   await expect(dialog.getByRole('status')).toHaveText('Loading simulation settings…')
   await expect(dialog.getByLabel('Minimum save delay (ms)')).toBeDisabled()
   await expect(dialog.getByRole('button', { name: 'Apply settings' })).toBeDisabled()
-  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releaseSimulationRead?: () => void }).releaseSimulationRead)).toBe('function')
-  await page.evaluate(() => (window as unknown as { releaseSimulationRead: () => void }).releaseSimulationRead())
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          typeof (window as unknown as { releaseSimulationRead?: () => void })
+            .releaseSimulationRead,
+      ),
+    )
+    .toBe('function')
+  await page.evaluate(() =>
+    (window as unknown as { releaseSimulationRead: () => void }).releaseSimulationRead(),
+  )
   await expect(dialog.getByLabel('Minimum save delay (ms)')).toBeEnabled()
   await dialog.getByLabel('Minimum save delay (ms)').fill('0')
   await dialog.getByLabel('Maximum save delay (ms)').fill('0')
@@ -353,7 +461,9 @@ test('simulation form waits for a delayed settings read so it cannot overwrite i
   expect(settings).toMatchObject({ minSaveDelayMs: 0, maxSaveDelayMs: 0 })
 })
 
-test('idle workspaces make no recurring API reads; a committed change triggers incremental catch-up then returns to idle', async ({ page }) => {
+test('idle workspaces make no recurring API reads; a committed change triggers incremental catch-up then returns to idle', async ({
+  page,
+}) => {
   await page.clock.install()
   let changes = 0
   let reads = 0
@@ -375,13 +485,21 @@ test('idle workspaces make no recurring API reads; a committed change triggers i
   expect({ changes, reads }).toEqual(caughtUp)
 })
 
-test('delivery pause stops data reads and API configuration notifications resume catch-up without UI polling', async ({ page }) => {
+test('delivery pause stops data reads and API configuration notifications resume catch-up without UI polling', async ({
+  page,
+}) => {
   await page.clock.install()
   let changes = 0
-  page.on('request', (request) => { if (new URL(request.url()).pathname === '/api/changes') changes++ })
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/changes') changes++
+  })
   const { snapshot, stage, record } = await setup(page)
   await page.evaluate(async () => {
-    await fetch('/api/simulation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changeDeliveryPaused: true }) })
+    await fetch('/api/simulation', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changeDeliveryPaused: true }),
+    })
   })
   await expect(page.getByTestId('connection-status')).toHaveText('Live updates paused')
   const paused = changes
@@ -390,7 +508,11 @@ test('delivery pause stops data reads and API configuration notifications resume
   expect(changes).toBe(paused)
   await expect(stage.getByTestId('deal-stage')).toHaveText('Lost')
   await page.evaluate(async () => {
-    await fetch('/api/simulation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changeDeliveryPaused: false }) })
+    await fetch('/api/simulation', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changeDeliveryPaused: false }),
+    })
   })
   await expect(stage.getByTestId('deal-stage')).toHaveText('Won')
   await expect(page.getByTestId('connection-status')).toHaveText('Live updates connected')

@@ -9,10 +9,16 @@ import type { MoveCommand } from './contracts'
 import { ChangeNotificationChannel } from './change-notifications'
 
 const notifications = new ChangeNotificationChannel()
-const simulation = new Simulation({ clock, createData: data, wait: async () => {}, onNotification: (notice) => notifications.publish(notice) })
+const simulation = new Simulation({
+  clock,
+  createData: data,
+  wait: async () => {},
+  onNotification: (notice) => notifications.publish(notice),
+})
 const server = setupServer(...createHandlers(simulation))
 const api = () => new DealApi('http://localhost', notifications)
-const move = (sessionId: string, overrides: Partial<MoveCommand> = {}) => command({ sessionId, ...overrides })
+const move = (sessionId: string, overrides: Partial<MoveCommand> = {}) =>
+  command({ sessionId, ...overrides })
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 beforeEach(() => {
@@ -20,7 +26,10 @@ beforeEach(() => {
   simulation.configure({ minSaveDelayMs: 0, maxSaveDelayMs: 0, failureRate: 0 })
 })
 afterEach(() => server.resetHandlers())
-afterAll(() => { simulation.dispose(); server.close() })
+afterAll(() => {
+  simulation.dispose()
+  server.close()
+})
 
 describe('HTTP contracts through the typed client', () => {
   it('bridges real HTTP commits to hints without sending records, and ignores notifications after invalidation', async () => {
@@ -30,7 +39,10 @@ describe('HTTP contracts through the typed client', () => {
     const unsubscribe = client.subscribeChanges(listener)
     await client.move(move(sessionId))
     expect(listener).toHaveBeenCalledExactlyOnceWith({ kind: 'changes', sessionId, cursor: 1 })
-    expect(await client.changes(0)).toMatchObject({ nextCursor: 1, changes: [{ record: { version: 2 } }] })
+    expect(await client.changes(0)).toMatchObject({
+      nextCursor: 1,
+      changes: [{ record: { version: 2 } }],
+    })
     client.invalidate()
     simulation.configure({ changeDeliveryPaused: true })
     expect(listener).toHaveBeenCalledTimes(1)
@@ -41,15 +53,25 @@ describe('HTTP contracts through the typed client', () => {
     const client = api()
     const snapshot = await client.load()
     expect(snapshot).toMatchObject({ cursor: 0, owners: data().owners })
-    expect(await client.move(move(snapshot.sessionId))).toMatchObject({ status: 'succeeded', receipt: { record: { version: 2 } } })
-    expect(await client.move(move(snapshot.sessionId, { mutationId: 'noop', expectedVersion: 2 }))).toMatchObject({ status: 'skipped' })
-    expect(await client.changes(0)).toMatchObject({ changes: [{ sequence: 1, mutationId: 'mutation-1' }], nextCursor: 1 })
+    expect(await client.move(move(snapshot.sessionId))).toMatchObject({
+      status: 'succeeded',
+      receipt: { record: { version: 2 } },
+    })
+    expect(
+      await client.move(move(snapshot.sessionId, { mutationId: 'noop', expectedVersion: 2 })),
+    ).toMatchObject({ status: 'skipped' })
+    expect(await client.changes(0)).toMatchObject({
+      changes: [{ sequence: 1, mutationId: 'mutation-1' }],
+      nextCursor: 1,
+    })
   })
 
   it('does not mutate for invalid stage/version/actor inputs (T02)', async () => {
     const client = api()
     const { sessionId } = await client.load()
-    await expect(client.move({ ...move(sessionId), stage: 'invalid' } as unknown as MoveCommand)).rejects.toMatchObject({ issue: { code: 'invalid_request' } })
+    await expect(
+      client.move({ ...move(sessionId), stage: 'invalid' } as unknown as MoveCommand),
+    ).rejects.toMatchObject({ issue: { code: 'invalid_request' } })
     expect((await client.load()).cursor).toBe(0)
   })
 
@@ -57,7 +79,10 @@ describe('HTTP contracts through the typed client', () => {
     const client = api()
     const { sessionId } = await client.load()
     simulation.forceFault('save-failure')
-    expect(await client.move(move(sessionId))).toMatchObject({ status: 'failed', error: { retryable: true } })
+    expect(await client.move(move(sessionId))).toMatchObject({
+      status: 'failed',
+      error: { retryable: true },
+    })
     expect(await client.operation('mutation-1')).toEqual({ status: 'retryable' })
     expect(await client.move(move(sessionId))).toMatchObject({ status: 'succeeded' })
     expect((await client.load()).deals[0].version).toBe(2)
@@ -70,7 +95,9 @@ describe('HTTP contracts through the typed client', () => {
     await second.load()
     const results = await Promise.all([
       first.move(move(snapshot.sessionId)),
-      second.move(move(snapshot.sessionId, { actorId: 'owner-2', mutationId: 'other', stage: 'won' })),
+      second.move(
+        move(snapshot.sessionId, { actorId: 'owner-2', mutationId: 'other', stage: 'won' }),
+      ),
     ])
     expect(results.map((result) => result.status).sort()).toEqual(['conflicted', 'succeeded'])
     expect((await first.load()).cursor).toBe(1)
@@ -87,7 +114,9 @@ describe('HTTP contracts through the typed client', () => {
     simulation.configure({ offline: false })
     const outcome = await client.operation('mutation-1')
     expect(outcome).toMatchObject({ status: 'completed', result: { status: 'succeeded' } })
-    expect(await client.move(move(sessionId))).toEqual(outcome.status === 'completed' ? outcome.result : null)
+    expect(await client.move(move(sessionId))).toEqual(
+      outcome.status === 'completed' ? outcome.result : null,
+    )
     expect((await client.load()).cursor).toBe(1)
   })
 
@@ -96,7 +125,9 @@ describe('HTTP contracts through the typed client', () => {
     const { sessionId } = await client.load()
     const results = await Promise.all([client.move(move(sessionId)), client.move(move(sessionId))])
     expect(results[0]).toEqual(results[1])
-    await expect(client.move(move(sessionId, { stage: 'lost' }))).rejects.toMatchObject({ issue: { code: 'mutation_reused' } })
+    await expect(client.move(move(sessionId, { stage: 'lost' }))).rejects.toMatchObject({
+      issue: { code: 'mutation_reused' },
+    })
     expect((await client.load()).cursor).toBe(1)
   })
 
@@ -104,7 +135,10 @@ describe('HTTP contracts through the typed client', () => {
     const client = api()
     const { sessionId } = await client.load()
     simulation.forceFault('save-failure')
-    const result = await client.bulk([move(sessionId), move(sessionId, { dealId: 'deal-2', mutationId: 'm2' })])
+    const result = await client.bulk([
+      move(sessionId),
+      move(sessionId, { dealId: 'deal-2', mutationId: 'm2' }),
+    ])
     expect(result.results).toHaveLength(2)
     expect(result.results.map((item) => item.mutationId)).toEqual(['mutation-1', 'm2'])
     expect(result.results.map((item) => item.result.status)).toEqual(['failed', 'succeeded'])
@@ -114,9 +148,15 @@ describe('HTTP contracts through the typed client', () => {
     const client = api()
     const { sessionId } = await client.load()
     await expect(client.bulk([])).rejects.toMatchObject({ issue: { code: 'invalid_request' } })
-    await expect(client.bulk([move(sessionId), move(sessionId)])).rejects.toMatchObject({ issue: { code: 'invalid_request' } })
-    await expect(client.bulk([move(sessionId), move(sessionId, { dealId: 'missing', mutationId: 'missing' })])).rejects.toMatchObject({ issue: { code: 'not_found' } })
-    await expect(client.bulk(Array.from({ length: 201 }, () => move(sessionId)))).rejects.toMatchObject({ issue: { code: 'invalid_request' } })
+    await expect(client.bulk([move(sessionId), move(sessionId)])).rejects.toMatchObject({
+      issue: { code: 'invalid_request' },
+    })
+    await expect(
+      client.bulk([move(sessionId), move(sessionId, { dealId: 'missing', mutationId: 'missing' })]),
+    ).rejects.toMatchObject({ issue: { code: 'not_found' } })
+    await expect(
+      client.bulk(Array.from({ length: 201 }, () => move(sessionId))),
+    ).rejects.toMatchObject({ issue: { code: 'invalid_request' } })
     expect((await client.load()).cursor).toBe(0)
   })
 
@@ -124,7 +164,9 @@ describe('HTTP contracts through the typed client', () => {
     const client = api()
     const { sessionId } = await client.load()
     simulation.forceFault('lost-response')
-    await expect(client.bulk([move(sessionId), move(sessionId, { dealId: 'deal-2', mutationId: 'm2' })])).rejects.toBeInstanceOf(TransportError)
+    await expect(
+      client.bulk([move(sessionId), move(sessionId, { dealId: 'deal-2', mutationId: 'm2' })]),
+    ).rejects.toBeInstanceOf(TransportError)
     expect(await client.operation('mutation-1')).toMatchObject({ status: 'completed' })
     expect(await client.operation('m2')).toMatchObject({ status: 'completed' })
     expect((await client.load()).cursor).toBe(2)
@@ -141,7 +183,9 @@ describe('HTTP contracts through the typed client', () => {
     const client = api()
     const { sessionId } = await client.load()
     await client.reset()
-    await expect(client.move(move(sessionId))).rejects.toMatchObject({ issue: { code: 'session_expired' } })
+    await expect(client.move(move(sessionId))).rejects.toMatchObject({
+      issue: { code: 'session_expired' },
+    })
     expect((await client.load()).sessionId).not.toBe(sessionId)
   })
 
@@ -150,12 +194,14 @@ describe('HTTP contracts through the typed client', () => {
     const { sessionId } = await client.load()
     const started = deferred()
     const release = deferred()
-    server.use(http.patch('http://localhost/api/deals/:id', async () => {
-      const result = await simulation.move(move(sessionId))
-      started.resolve()
-      await release.promise
-      return HttpResponse.json(result)
-    }))
+    server.use(
+      http.patch('http://localhost/api/deals/:id', async () => {
+        const result = await simulation.move(move(sessionId))
+        started.resolve()
+        await release.promise
+        return HttpResponse.json(result)
+      }),
+    )
     const pending = client.move(move(sessionId))
     await started.promise
     expect((await client.resync()).deals[0]).toMatchObject({ version: 2 })
@@ -167,8 +213,12 @@ describe('HTTP contracts through the typed client', () => {
     const client = api()
     await client.load()
     simulation.reset()
-    await expect(client.configure({ teammatesEnabled: true })).rejects.toMatchObject({ issue: { code: 'session_expired' } })
-    await expect(client.forceFault('lost-response')).rejects.toMatchObject({ issue: { code: 'session_expired' } })
+    await expect(client.configure({ teammatesEnabled: true })).rejects.toMatchObject({
+      issue: { code: 'session_expired' },
+    })
+    await expect(client.forceFault('lost-response')).rejects.toMatchObject({
+      issue: { code: 'session_expired' },
+    })
     await expect(client.resync()).rejects.toMatchObject({ issue: { code: 'session_expired' } })
     expect(simulation.configuration().teammatesEnabled).toBe(false)
   })
@@ -176,12 +226,14 @@ describe('HTTP contracts through the typed client', () => {
   it('ignores a stale HTTP snapshot delivered after the client has reset', async () => {
     const started = deferred()
     const release = deferred()
-    server.use(http.get('http://localhost/api/deals', async () => {
-      const oldSnapshot = await simulation.snapshot()
-      started.resolve()
-      await release.promise
-      return HttpResponse.json(oldSnapshot)
-    }))
+    server.use(
+      http.get('http://localhost/api/deals', async () => {
+        const oldSnapshot = await simulation.snapshot()
+        started.resolve()
+        await release.promise
+        return HttpResponse.json(oldSnapshot)
+      }),
+    )
     const client = api()
     const pending = client.load()
     await started.promise
@@ -191,7 +243,10 @@ describe('HTTP contracts through the typed client', () => {
   })
 
   it('validates malformed JSON and change cursors and provides typed errors', async () => {
-    const response = await fetch('http://localhost/api/deals/deal-1', { method: 'PATCH', body: '{bad-json' })
+    const response = await fetch('http://localhost/api/deals/deal-1', {
+      method: 'PATCH',
+      body: '{bad-json',
+    })
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ error: { code: 'invalid_request' } })
     const client = api()
@@ -203,10 +258,31 @@ describe('HTTP contracts through the typed client', () => {
   it('keeps a write outcome uncertain when its response body cannot be read', async () => {
     const client = api()
     const { sessionId } = await client.load()
-    server.use(http.patch('http://localhost/api/deals/:id', () => new HttpResponse('{truncated-json', {
-      headers: { 'Content-Type': 'application/json' },
-    })))
+    server.use(
+      http.patch(
+        'http://localhost/api/deals/:id',
+        () =>
+          new HttpResponse('{truncated-json', {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    )
     await expect(client.move(move(sessionId))).rejects.toBeInstanceOf(TransportError)
+  })
+
+  it('rejects malformed successful save and receipt responses at the transport boundary', async () => {
+    const client = api()
+    const { sessionId } = await client.load()
+    server.use(
+      http.patch('http://localhost/api/deals/:id', () =>
+        HttpResponse.json({ status: 'succeeded', receipt: null }),
+      ),
+      http.get('http://localhost/api/operations/:id', () =>
+        HttpResponse.json({ status: 'unrecognized' }),
+      ),
+    )
+    await expect(client.move(move(sessionId))).rejects.toBeInstanceOf(TransportError)
+    await expect(client.operation('mutation-1')).rejects.toBeInstanceOf(TransportError)
   })
 })
 

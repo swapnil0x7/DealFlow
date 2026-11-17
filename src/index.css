@@ -4,10 +4,10 @@
     ui-sans-serif,
     -apple-system,
     BlinkMacSystemFont,
-    "Segoe UI",
+    'Segoe UI',
     sans-serif;
-  color: #243d37;
-  background: #f5f6f3;
+  color: var(--color-text);
+  background: var(--color-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -55,16 +55,16 @@ p {
   line-height: 1.6;
 }
 .workspace section {
-  background: white;
+  background: var(--color-surface);
   border: 1px solid #dce3de;
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
   padding: 28px;
 }
 .workspace button {
-  background: #155b50;
-  color: white;
+  background: var(--color-action);
+  color: var(--color-surface);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 12px 18px;
 }
 .eyebrow {
