@@ -128,3 +128,68 @@ describe('reviewed selection', () => {
     expect(selection.store.getState().changed).toBe(0)
   })
 })
+
+it('cooperative selection fixes membership and versions before a teammate update and publishes atomically', async () => {
+  const records = Array.from({ length: 1000 }, (_, index) => ({ ...deal, id: `row-${index}` }))
+  const model = new ConfirmedReadModel(records)
+  const selection = new SelectionService(model)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('scheduler', {
+    yield: vi
+      .fn()
+      .mockImplementationOnce(() => gate)
+      .mockResolvedValue(undefined),
+  })
+  try {
+    const changes = vi.fn()
+    selection.subscribe(changes)
+    const result = selection.prepareMatching(
+      { ...DEFAULT_FILTERS, stage: 'new-lead' },
+      NOW,
+      new AbortController().signal,
+    )
+    expect(selection.store.getState().count).toBe(0)
+    model.apply([{ ...records[900], stage: 'won', version: 2 }])
+    release()
+    await result
+    expect(selection.records()).toHaveLength(1000)
+    expect(selection.records()[900].version).toBe(1)
+    expect(selection.store.getState().changed).toBe(1)
+    expect(changes).toHaveBeenCalledTimes(1)
+  } finally {
+    selection.dispose()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('clearing or disposing selection cancels obsolete preparation without publishing partial membership', async () => {
+  const model = new ConfirmedReadModel(
+    Array.from({ length: 1000 }, (_, index) => ({ ...deal, id: `row-${index}` })),
+  )
+  const selection = new SelectionService(model)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('scheduler', {
+    yield: vi
+      .fn()
+      .mockImplementationOnce(() => gate)
+      .mockResolvedValue(undefined),
+  })
+  try {
+    const result = selection.prepareMatching(DEFAULT_FILTERS, NOW, new AbortController().signal)
+    const rejected = expect(result).rejects.toMatchObject({ name: 'AbortError' })
+    selection.clear('Filters changed.')
+    release()
+    await rejected
+    expect(selection.store.getState().count).toBe(0)
+    expect(selection.records()).toEqual([])
+  } finally {
+    selection.dispose()
+    vi.unstubAllGlobals()
+  }
+})

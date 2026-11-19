@@ -23,6 +23,7 @@ const VIEWS: { id: WorkView; label: string }[] = [
   { id: 'all', label: 'All deals' },
   { id: 'mine', label: 'My deals' },
   { id: 'attention', label: 'Needs attention' },
+  { id: 'today', label: 'Updated today' },
 ]
 
 export function PipelineWorkspace({
@@ -164,7 +165,7 @@ function WorkspaceContent({
             </strong>
             <strong>
               {owners.length}
-              <span>salespeople</span>
+              <span>users</span>
             </strong>
           </div>
         </div>
@@ -269,7 +270,14 @@ function WorkspaceContent({
                 </>
               )}
             </p>
-            <AttentionHelp />
+            {filters.view === 'today' ? (
+              <span>
+                Stage updates today · {Intl.DateTimeFormat().resolvedOptions().timeZone} · All
+                stages included
+              </span>
+            ) : (
+              <AttentionHelp />
+            )}
           </div>
           <PipelineTable
             scrollHostRef={scrollHost}

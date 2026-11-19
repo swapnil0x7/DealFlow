@@ -693,3 +693,185 @@ describe('bounded bulk command workflow', () => {
     expect(model.get('deal-1')?.version).toBe(1)
   })
 })
+
+it('cancelling cooperative submission releases unpublished reservations and sends no requests', async () => {
+  const { service, model, api, activity } = setup(1000)
+  const preview = service.preview(model.all(), 'contacted', 'All deals')
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('scheduler', {
+    yield: vi
+      .fn()
+      .mockImplementationOnce(() => gate)
+      .mockResolvedValue(undefined),
+  })
+  try {
+    const controller = new AbortController()
+    const pending = service.prepareSubmit(preview, controller.signal)
+    expect(activity.isBlocked(model.all()[0].id)).toBe(true)
+    expect(api.bulk).not.toHaveBeenCalled()
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    controller.abort()
+    release()
+    await rejected
+    expect(service.store.getState().groups).toHaveLength(0)
+    expect(model.all().some((record) => activity.isBlocked(record.id))).toBe(false)
+    expect(api.bulk).not.toHaveBeenCalled()
+    expect(service.getItemById(preview.items[0].command.mutationId)).toBeUndefined()
+  } finally {
+    service.dispose()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('cooperative submission retains original guards and skips a command reserved while preparation yields', async () => {
+  const { service, model, api, activity, repository, summary } = setup(1000)
+  const preview = service.preview(model.all(), 'contacted', 'All deals')
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('scheduler', {
+    yield: vi
+      .fn()
+      .mockImplementationOnce(() => gate)
+      .mockResolvedValue(undefined),
+  })
+  try {
+    const controller = new AbortController()
+    const pending = service.prepareSubmit(preview, controller.signal)
+    activity.claim({
+      id: 'other',
+      dealId: 'deal-901',
+      stage: 'won',
+      kind: 'move',
+      status: 'saving',
+    })
+    await repository.move({ ...preview.items[800].command, mutationId: 'remote', stage: 'won' })
+    release()
+    expect(await pending).toBe(preview.id)
+    await vi.waitFor(() => expect(summary(preview.id).counts.succeeded).toBe(998))
+    expect(summary(preview.id).counts.skipped).toBe(1)
+    expect(summary(preview.id).counts.conflicted).toBe(1)
+    expect(
+      api.bulk.mock.calls
+        .flatMap(([commands]) => commands)
+        .every((command) => command.expectedVersion === 1),
+    ).toBe(true)
+  } finally {
+    service.dispose()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('disposing a session during cooperative preparation prevents any queued write from starting', async () => {
+  const { service, model, api } = setup(1000)
+  const preview = service.preview(model.all(), 'contacted', 'All deals')
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('scheduler', {
+    yield: vi
+      .fn()
+      .mockImplementationOnce(() => gate)
+      .mockResolvedValue(undefined),
+  })
+  try {
+    const pending = service.prepareSubmit(preview, new AbortController().signal)
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    service.dispose()
+    release()
+    await rejected
+    expect(api.bulk).not.toHaveBeenCalled()
+  } finally {
+    service.dispose()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('cooperative Undo captures eligible membership before yielding so later successes or released guards cannot join', async () => {
+  const { service, activity, submit, summary } = setup(600)
+  const original = submit()
+  await vi.waitFor(() => expect(summary(original.id).counts.succeeded).toBe(600))
+  activity.claim({ id: 'other', dealId: 'deal-600', stage: 'won', kind: 'move', status: 'saving' })
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('scheduler', {
+    yield: vi
+      .fn()
+      .mockImplementationOnce(() => gate)
+      .mockResolvedValue(undefined),
+  })
+  try {
+    const pending = service.prepareUndo(original.id, undefined, new AbortController().signal)
+    activity.remove('deal-600', 'other')
+    release()
+    const preview = await pending
+    expect(preview?.items).toHaveLength(599)
+    expect(preview?.items.some((item) => item.command.dealId === 'deal-600')).toBe(false)
+    expect(preview?.items.every((item) => item.command.expectedVersion === 2)).toBe(true)
+  } finally {
+    service.dispose()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('Undo keeps original command order after eligibility changes rather than using eligibility insertion order', async () => {
+  const { service, activity, submit, summary } = setup(3)
+  const original = submit()
+  await vi.waitFor(() => expect(summary(original.id).counts.succeeded).toBe(3))
+  activity.claim({ id: 'other', dealId: 'deal-1', stage: 'won', kind: 'move', status: 'saving' })
+  activity.remove('deal-1', 'other')
+  const undo = await service.prepareUndo(original.id, undefined, new AbortController().signal)
+  expect(undo?.items.map((item) => item.command.dealId)).toEqual(['deal-1', 'deal-2', 'deal-3'])
+  service.dispose()
+})
+
+it('cancelling late Undo preparation restores original links and eligibility without issuing reversal writes', async () => {
+  const { service, activity, api, submit, summary } = setup(600)
+  const original = submit()
+  await vi.waitFor(() => expect(summary(original.id).counts.succeeded).toBe(600))
+  const preview = service.previewUndo(original.id)!
+  const requests = api.bulk.mock.calls.length
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let held = false
+  vi.stubGlobal('scheduler', {
+    yield: vi.fn().mockImplementation(() => {
+      if (!held && service.getItem(original.id, original.items[0].command.mutationId)?.undoId) {
+        held = true
+        return gate
+      }
+      return Promise.resolve()
+    }),
+  })
+  try {
+    const controller = new AbortController()
+    const pending = service.prepareSubmit(preview, controller.signal)
+    await vi.waitFor(() => expect(held).toBe(true))
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    controller.abort()
+    release()
+    await rejected
+    expect(service.store.getState().groups).toHaveLength(1)
+    expect(service.undoEligible(original.id)).toBe(600)
+    expect(
+      original.items.every(
+        (item) =>
+          !service.getItem(original.id, item.command.mutationId)?.undoId &&
+          !activity.isBlocked(item.command.dealId),
+      ),
+    ).toBe(true)
+    expect(api.bulk).toHaveBeenCalledTimes(requests)
+  } finally {
+    service.dispose()
+    vi.unstubAllGlobals()
+  }
+})

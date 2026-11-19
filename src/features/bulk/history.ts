@@ -45,18 +45,27 @@ export class BulkUndoIndex {
     return changed
   }
 
+  candidates(groupId: string): readonly string[] {
+    return Array.from(this.eligible.get(groupId) ?? [])
+  }
+
   count(groupId: string): number {
     return this.eligible.get(groupId)?.size ?? 0
   }
 
+  unregister(id: string): void {
+    const entry = this.entries.get(id)
+    if (!entry) return
+    const deal = this.byDeal.get(entry.dealId)!
+    deal.delete(id)
+    if (!deal.size) this.byDeal.delete(entry.dealId)
+    this.byGroup.get(entry.groupId)?.delete(id)
+    this.eligible.get(entry.groupId)?.delete(id)
+    this.entries.delete(id)
+  }
+
   remove(groupId: string): void {
-    for (const id of this.byGroup.get(groupId) ?? []) {
-      const entry = this.entries.get(id)!
-      const deal = this.byDeal.get(entry.dealId)!
-      deal.delete(id)
-      if (!deal.size) this.byDeal.delete(entry.dealId)
-      this.entries.delete(id)
-    }
+    for (const id of this.byGroup.get(groupId) ?? []) this.unregister(id)
     this.byGroup.delete(groupId)
     this.eligible.delete(groupId)
   }

@@ -1,10 +1,11 @@
 import { Button } from '../../shared/ui/Button'
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useStore } from 'zustand'
 import { STAGE_LABELS } from '../../domain/deal'
 import { formatCount, formatMoney } from '../../shared/format'
+import { usePreparation } from '../../shared/use-preparation'
 import { useExitSnapshot } from '../../shared/use-exit-snapshot'
 import type { BulkPreview } from './types'
 import type { BulkService } from './service'
@@ -27,6 +28,9 @@ export function BulkReview({
   restoreFocus?: () => HTMLElement | null
   onSubmitted?: (id: string) => void
 }) {
+  const preparation = usePreparation()
+  const { cancel } = preparation
+  useEffect(() => () => cancel(), [livePreview, cancel])
   const expired = useStore(service.store, (state) => state.expired)
   const notice = useStore(service.store, (state) => state.notice)
   const content = useRef<HTMLDivElement>(null)
@@ -45,7 +49,10 @@ export function BulkReview({
     <Dialog.Root
       open={Boolean(livePreview)}
       onOpenChange={(open) => {
-        if (!open) onClose()
+        if (!open) {
+          preparation.cancel()
+          onClose()
+        }
       }}
     >
       <Dialog.Portal>
@@ -128,18 +135,29 @@ export function BulkReview({
                 )}
               </details>
               {notice && <p role="alert">{notice}</p>}
+              {preparation.busy && (
+                <p role="status">
+                  Preparing commands… No changes are sent until preparation finishes.
+                </p>
+              )}
+              {preparation.error && <p role="alert">{preparation.error}</p>}
               <div className={styles.actions}>
                 <Dialog.Close asChild>
                   <Button>Cancel bulk review</Button>
                 </Dialog.Close>
                 <Button
                   disabled={expired || !livePreview}
+                  aria-disabled={expired || !livePreview || preparation.busy}
                   onClick={() => {
-                    const id = service.submit(preview)
-                    if (id) {
-                      onClose()
-                      onSubmitted?.(id)
-                    } else content.current?.focus()
+                    if (preparation.busy) return
+                    void preparation
+                      .run((signal) => service.prepareSubmit(preview, signal))
+                      .then((id) => {
+                        if (id) {
+                          onClose()
+                          onSubmitted?.(id)
+                        } else if (!preparation.busy) content.current?.focus()
+                      })
                   }}
                 >
                   {preview.kind === 'undo' ? 'Confirm bulk Undo' : 'Confirm bulk move'}

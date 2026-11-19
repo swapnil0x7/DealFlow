@@ -1,3 +1,4 @@
+import { complete, cooperate } from '../../shared/cooperative'
 import { createStore } from 'zustand/vanilla'
 import type { DealApi } from '../../api/client'
 import { ApiError, MAX_BATCH_SIZE } from '../../api/contracts'
@@ -69,6 +70,9 @@ export class BulkService {
   private readonly unsubscribeActivity: () => void
   private readonly index = new Map<string, Group>()
   private active = true
+  private readonly lifetime = new AbortController()
+  private readonly submitting = new Set<string>()
+  private readonly preparedGroups = new Map<string, Group>()
   private inFlight = 0
   private pumpTimer: ReturnType<typeof setTimeout> | undefined
   private publishTimer: ReturnType<typeof setTimeout> | undefined
@@ -111,30 +115,54 @@ export class BulkService {
   }
 
   preview(records: readonly Deal[], target: Stage, source: string): BulkPreview {
-    const items = records.map((record): PreviewItem => {
+    return complete(this.previewWork(records, target, source))
+  }
+
+  preparePreview(
+    records: readonly Deal[],
+    target: Stage,
+    source: string,
+    signal: AbortSignal,
+  ): Promise<BulkPreview> {
+    return cooperate(
+      this.previewWork(records, target, source),
+      AbortSignal.any([signal, this.lifetime.signal]),
+    )
+  }
+
+  private *previewWork(
+    records: readonly Deal[],
+    target: Stage,
+    source: string,
+  ): Generator<void, BulkPreview, void> {
+    const items: PreviewItem[] = []
+    for (const record of records) {
       const changed = this.options.model.get(record.id)?.version !== record.version
       const pending = this.options.activity.isBlocked(record.id)
-      return Object.freeze({
-        companyName: record.companyName,
-        previousStage: record.stage,
-        valuePaise: record.valuePaise,
-        changed,
-        command: Object.freeze({
-          sessionId: this.options.sessionId,
-          actorId: this.options.actorId,
-          dealId: record.id,
-          mutationId: this.id(),
-          expectedVersion: record.version,
-          stage: target,
+      items.push(
+        Object.freeze({
+          companyName: record.companyName,
+          previousStage: record.stage,
+          valuePaise: record.valuePaise,
+          changed,
+          command: Object.freeze({
+            sessionId: this.options.sessionId,
+            actorId: this.options.actorId,
+            dealId: record.id,
+            mutationId: this.id(),
+            expectedVersion: record.version,
+            stage: target,
+          }),
+          skipKind: pending ? 'pending' : !changed && record.stage === target ? 'noop' : undefined,
+          skipReason: pending
+            ? 'An outstanding local command already owns this deal.'
+            : !changed && record.stage === target
+              ? 'Already in the target stage at review.'
+              : undefined,
         }),
-        skipKind: pending ? 'pending' : !changed && record.stage === target ? 'noop' : undefined,
-        skipReason: pending
-          ? 'An outstanding local command already owns this deal.'
-          : !changed && record.stage === target
-            ? 'Already in the target stage at review.'
-            : undefined,
-      })
-    })
+      )
+      yield
+    }
     return this.freezePreview({
       id: this.id(),
       kind: 'move',
@@ -159,10 +187,56 @@ export class BulkService {
   }
 
   submit(preview: BulkPreview): string | null {
+    if (this.submitting.has(preview.id)) return null
+    this.submitting.add(preview.id)
+    try {
+      return this.options.activity.batch(() => complete(this.submitWork(preview)))
+    } finally {
+      if (!this.groups.has(preview.id))
+        this.options.activity.batch(() => complete(this.rollbackWork(preview.id)))
+      this.submitting.delete(preview.id)
+    }
+  }
+
+  async prepareSubmit(preview: BulkPreview, signal: AbortSignal): Promise<string | null> {
+    if (this.submitting.has(preview.id)) return null
+    this.submitting.add(preview.id)
+    try {
+      return await cooperate(
+        this.submitWork(preview),
+        AbortSignal.any([signal, this.lifetime.signal]),
+        (action) => this.options.activity.batch(action),
+      )
+    } finally {
+      // Roll back only unpublished reservations; an accepted command group is never cancelled by closing UI.
+      if (!this.groups.has(preview.id))
+        await cooperate(this.rollbackWork(preview.id), undefined, (action) =>
+          this.options.activity.batch(action),
+        )
+      this.submitting.delete(preview.id)
+    }
+  }
+
+  private *submitWork(preview: BulkPreview): Generator<void, string | null, void> {
     if (!this.writable() || !preview.items.length || this.groups.has(preview.id)) return null
-    const total = Array.from(this.groups.values()).reduce((sum, group) => sum + group.items.size, 0)
     if (
-      this.groups.size >= (this.options.historyLimit ?? 10) ||
+      preview.parent &&
+      Array.from(this.preparedGroups.values()).some(
+        (group) => group.preview.parent?.groupId === preview.parent?.groupId,
+      )
+    ) {
+      this.store.setState({
+        notice:
+          'Another reviewed operation for these results is still being prepared. Finish or cancel it first.',
+      })
+      return null
+    }
+    const total = [...this.groups.values(), ...this.preparedGroups.values()].reduce(
+      (sum, group) => sum + (group.preview.items.length || group.items.size),
+      0,
+    )
+    if (
+      this.groups.size + this.preparedGroups.size >= (this.options.historyLimit ?? 10) ||
       total + preview.items.length > (this.options.itemLimit ?? 100_000)
     ) {
       this.store.setState({
@@ -196,69 +270,96 @@ export class BulkService {
       resumable: 0,
       needsAction: 0,
     }
-    this.options.activity.batch(() => {
-      for (const entry of preview.items) {
-        let skipReason = entry.skipReason
-        let skipKind = entry.skipKind
-        if (
-          !skipReason &&
-          !this.options.activity.claim({
-            id: entry.command.mutationId,
-            dealId: entry.command.dealId,
-            stage: entry.command.stage,
-            kind: preview.kind,
-            status: 'queued',
-          })
-        ) {
-          skipKind = 'pending'
-          skipReason = 'An outstanding local command started after review.'
-        }
-        const item: BulkItem = {
-          ...entry,
-          skipKind,
-          skipReason,
-          status: skipReason ? 'skipped' : 'queued',
-          attempts: 0,
-          history: [],
-          olderAttempts: 0,
-          canResume: false,
-          checking: false,
-        }
-        group.items.set(entry.command.mutationId, item)
-        this.index.set(entry.command.mutationId, group)
-        this.undoIndex.register(preview.id, entry.command.mutationId, entry.command.dealId)
-        group.counts[item.status]++
-        if (item.status === 'queued') group.queue.push(item.command.mutationId)
+    this.preparedGroups.set(preview.id, group)
+    for (const entry of preview.items) {
+      let skipReason = entry.skipReason
+      let skipKind = entry.skipKind
+      if (
+        !skipReason &&
+        !this.options.activity.claim({
+          id: entry.command.mutationId,
+          dealId: entry.command.dealId,
+          stage: entry.command.stage,
+          kind: preview.kind,
+          status: 'queued',
+        })
+      ) {
+        skipKind = 'pending'
+        skipReason = 'An outstanding local command started after review.'
       }
-      this.groups.set(preview.id, group)
-      if (preview.parent) {
-        const parent = this.groups.get(preview.parent.groupId)
-        if (parent) {
-          if (preview.parent.relation === 'review')
-            this.patch(parent, preview.parent.itemId!, {
-              reviewedBy: preview.id,
-            })
-          else {
-            const originals = new Map(
-              Array.from(parent.items.values(), (item) => [item.command.dealId, item]),
-            )
-            for (const item of group.items.values()) {
-              const original = originals.get(item.command.dealId)
-              if (original)
-                this.patch(parent, original.command.mutationId, {
-                  undoId: preview.id,
-                })
-            }
+      const item: BulkItem = {
+        ...entry,
+        skipKind,
+        skipReason,
+        status: skipReason ? 'skipped' : 'queued',
+        attempts: 0,
+        history: [],
+        olderAttempts: 0,
+        canResume: false,
+        checking: false,
+      }
+      group.items.set(entry.command.mutationId, item)
+      this.index.set(entry.command.mutationId, group)
+      this.undoIndex.register(preview.id, entry.command.mutationId, entry.command.dealId)
+      group.counts[item.status]++
+      if (item.status === 'queued') group.queue.push(item.command.mutationId)
+      yield
+    }
+    if (preview.parent) {
+      const parent = this.groups.get(preview.parent.groupId)
+      if (parent) {
+        if (preview.parent.relation === 'review')
+          this.patch(parent, preview.parent.itemId!, {
+            reviewedBy: preview.id,
+          })
+        else {
+          const originals = new Map<string, BulkItem>()
+          for (const original of parent.items.values()) {
+            originals.set(original.command.dealId, original)
+            yield
+          }
+          for (const item of group.items.values()) {
+            const original = originals.get(item.command.dealId)
+            if (original && !original.undoId && !item.skipReason)
+              this.patch(parent, original.command.mutationId, {
+                undoId: preview.id,
+              })
+            yield
           }
         }
       }
-    })
+    }
+    if (!this.writable()) return null
+    this.groups.set(preview.id, group)
+    this.preparedGroups.delete(preview.id)
     // Preview records are compact descriptors. Do not retain a second copy of every result in the preview.
     group.preview = { ...preview, items: [] }
     this.store.setState({ notice: null })
     this.publish()
     this.schedule()
     return preview.id
+  }
+
+  private *rollbackWork(id: string): Generator<void, void, void> {
+    const group = this.preparedGroups.get(id)
+    if (!group) return
+    for (const item of group.items.values()) {
+      if (!item.skipReason)
+        this.options.activity.remove(item.command.dealId, item.command.mutationId)
+      this.index.delete(item.command.mutationId)
+      this.undoIndex.unregister(item.command.mutationId)
+      yield
+    }
+    const parent = group.preview.parent && this.groups.get(group.preview.parent.groupId)
+    if (parent)
+      for (const item of parent.items.values()) {
+        if (item.undoId === id) this.patch(parent, item.command.mutationId, { undoId: undefined })
+        if (item.reviewedBy === id)
+          this.patch(parent, item.command.mutationId, { reviewedBy: undefined })
+        yield
+      }
+    this.undoIndex.remove(id)
+    this.preparedGroups.delete(id)
   }
 
   getItem(groupId: string, itemId: string): BulkItem | undefined {
@@ -844,14 +945,31 @@ export class BulkService {
   }
 
   previewUndo(groupId: string, itemId?: string): BulkPreview | null {
+    return complete(this.undoWork(groupId, itemId))
+  }
+
+  prepareUndo(
+    groupId: string,
+    itemId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<BulkPreview | null> {
+    return cooperate(
+      this.undoWork(groupId, itemId),
+      AbortSignal.any([signal, this.lifetime.signal]),
+    )
+  }
+
+  private *undoWork(groupId: string, itemId?: string): Generator<void, BulkPreview | null, void> {
     const group = this.groups.get(groupId)
     if (!group || group.preview.kind !== 'move' || !this.writable()) return null
     const items: PreviewItem[] = []
+    const eligible = itemId ? null : new Set(this.undoIndex.candidates(groupId))
     const candidates = itemId
       ? [group.items.get(itemId)].filter((item): item is BulkItem => Boolean(item))
       : group.items.values()
     for (const item of candidates) {
-      if (!this.canUndo(item)) continue
+      yield
+      if ((eligible && !eligible.has(item.command.mutationId)) || !this.canUndo(item)) continue
       items.push(
         Object.freeze({
           companyName: item.companyName,
@@ -880,6 +998,12 @@ export class BulkService {
   }
 
   canDismiss(groupId: string): boolean {
+    if (
+      Array.from(this.preparedGroups.values()).some(
+        (group) => group.preview.parent?.groupId === groupId,
+      )
+    )
+      return false
     const group = this.groups.get(groupId)
     const unresolved = (entry: Group) =>
       entry.checking || entry.counts.queued + entry.counts.saving + entry.counts.unconfirmed > 0
@@ -909,6 +1033,7 @@ export class BulkService {
   }
 
   expireSession(): void {
+    this.lifetime.abort()
     if (!this.active || this.store.getState().expired) return
     this.store.setState({ expired: true })
     this.options.activity.batch(() =>
@@ -938,6 +1063,7 @@ export class BulkService {
   }
 
   dispose(): void {
+    this.lifetime.abort()
     this.active = false
     this.unsubscribe()
     this.unsubscribeActivity()

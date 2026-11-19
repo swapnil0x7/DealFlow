@@ -1,5 +1,6 @@
+import { usePreparation } from '../../shared/use-preparation'
 import { Button } from '../../shared/ui/Button'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { STAGES, STAGE_LABELS, isStage } from '../../domain/deal'
 import type { Owner, Stage } from '../../domain/deal'
@@ -29,11 +30,14 @@ export function SelectionBar({
   owners: readonly Owner[]
   stale: boolean
   searching: boolean
-  onSelectAll: () => void
+  onSelectAll: (signal: AbortSignal) => Promise<void>
 }) {
+  const preparation = usePreparation()
+  const { cancel } = preparation
   const state = useStore(selection.store)
   const expired = useStore(service.store, (value) => value.expired)
   const [target, setTarget] = useState<Stage>('contacted')
+  useEffect(() => cancel, [filters, target, state.revision, cancel])
   const [preview, setPreview] = useState<BulkPreview | null>(null)
   const trigger = useRef<HTMLElement | null>(null)
   const fallback = useRef<HTMLButtonElement>(null)
@@ -91,15 +95,17 @@ export function SelectionBar({
             <Button
               className={styles.reviewButton}
               disabled={searching || expired}
+              aria-disabled={searching || expired || preparation.busy}
               onClick={(event) => {
+                if (preparation.busy) return
                 trigger.current = event.currentTarget
-                setPreview(
-                  service.preview(
-                    selection.records(),
-                    target,
-                    describeCriteria(state.source ?? filters, owners),
-                  ),
-                )
+                const records = selection.records()
+                const source = describeCriteria(state.source ?? filters, owners)
+                void preparation
+                  .run((signal) => service.preparePreview(records, target, source, signal))
+                  .then((value) => {
+                    if (value) setPreview(value)
+                  })
               }}
             >
               Review bulk move
@@ -112,12 +118,20 @@ export function SelectionBar({
       </div>
       <div className={styles.selectionFooter}>
         <div className={styles.selectionUtilities}>
-          <Button ref={fallback} disabled={searching || expired} onClick={onSelectAll}>
+          <Button
+            ref={fallback}
+            disabled={searching || expired}
+            aria-disabled={searching || expired || preparation.busy}
+            onClick={() => {
+              if (!preparation.busy) void preparation.run(onSelectAll)
+            }}
+          >
             {stale ? 'Refresh list and select all matching' : 'Select all matching'}
           </Button>
           {state.count > 0 && (
             <Button
               onClick={() => {
+                preparation.cancel()
                 selection.clear()
                 fallback.current?.focus()
               }}
@@ -139,6 +153,13 @@ export function SelectionBar({
           </details>
         )}
       </div>
+      {preparation.busy && (
+        <p role="status">
+          Preparing selection or review…{' '}
+          <Button onClick={preparation.cancel}>Cancel preparation</Button>
+        </p>
+      )}
+      {preparation.error && <p role="alert">{preparation.error}</p>}
       <BulkProgress />
       <BulkReview
         preview={preview}

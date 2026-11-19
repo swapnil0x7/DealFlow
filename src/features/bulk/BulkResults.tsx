@@ -1,5 +1,6 @@
 import { Button } from '../../shared/ui/Button'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { usePreparation } from '../../shared/use-preparation'
 import { useAnnouncement } from '../../shared/use-announcement'
 import { useStore } from 'zustand'
 import { STAGE_LABELS } from '../../domain/deal'
@@ -255,6 +256,8 @@ export function BulkResults({
   needsActionOnly?: boolean
 }) {
   const { controller } = useChanges()
+  const preparation = usePreparation()
+  const { run: prepare } = preparation
   const { groups, notice, online, expired } = useStore(service.store)
   const [preview, setPreview] = useState<BulkPreview | null>(null)
   const visibleGroups = groups.filter(
@@ -269,9 +272,11 @@ export function BulkResults({
   const onUndo = useCallback(
     (id: string, button: HTMLElement) => {
       trigger.current = button
-      setPreview(service.previewUndo(id))
+      void prepare((signal) => service.prepareUndo(id, undefined, signal)).then((value) => {
+        if (value) setPreview(value)
+      })
     },
-    [service],
+    [service, prepare],
   )
   const onReview = useCallback(
     (_groupId: string, item: BulkItem, button: HTMLElement) => {
@@ -309,6 +314,12 @@ export function BulkResults({
         {announcement}
       </p>
       {notice && <p role="alert">{notice}</p>}
+      {preparation.busy && (
+        <p role="status">
+          Preparing Undo review… <Button onClick={preparation.cancel}>Cancel preparation</Button>
+        </p>
+      )}
+      {preparation.error && <p role="alert">{preparation.error}</p>}
       {expired && (
         <p role="alert">
           This simulation session expired. Reload the workspace before starting more changes.

@@ -37,7 +37,7 @@ import { STAGE_LABELS, isStage } from '../../domain/deal'
 import type { Deal, Owner } from '../../domain/deal'
 import { matchesFilters } from '../../domain/filters'
 import type { PipelineFilters, WorkView } from '../../domain/filters'
-import { formatDate, formatMoney } from '../../shared/format'
+import { formatDate, formatMoney, formatTime } from '../../shared/format'
 import type { PipelineProjection, PipelineRow } from './projection'
 import type { OperationService } from '../operations/service'
 import { activityLabel } from '../operations/presentation'
@@ -101,6 +101,9 @@ function CompanyCell({ data, context }: ICellRendererParams<PipelineRow, unknown
       <div className={styles.company}>
         <strong>{data.deal.companyName}</strong>
         <span>{data.deal.id.toUpperCase()}</span>
+        {context.filters.view === 'today' && (
+          <small>Updated {formatTime(Date.parse(data.deal.updatedAt))}</small>
+        )}
         {!matchesFilters(data, context.filters) && (
           <small className={styles.staleRow}>No longer matches filters</small>
         )}
@@ -116,6 +119,12 @@ function StatusCell({ data, context }: ICellRendererParams<PipelineRow, unknown,
 }
 
 const columns: ColDef<PipelineRow>[] = [
+  {
+    colId: 'updated',
+    headerName: 'Last updated',
+    valueGetter: ({ data }) => (data ? Date.parse(data.deal.updatedAt) : 0),
+    hide: true,
+  },
   {
     colId: 'company',
     headerName: 'Company',
@@ -243,7 +252,12 @@ const overlayParams = {
 
 function applyViewSort(api: GridApi<PipelineRow>, view: WorkView) {
   api.applyColumnState({
-    state: [{ colId: view === 'attention' ? 'attention' : 'company', sort: 'asc' }],
+    state: [
+      {
+        colId: view === 'attention' ? 'attention' : view === 'today' ? 'updated' : 'company',
+        sort: view === 'today' ? 'desc' : 'asc',
+      },
+    ],
     defaultState: { sort: null },
   })
 }
@@ -444,9 +458,9 @@ export function PipelineTable({
         owners={owners}
         stale={listStale}
         searching={searching}
-        onSelectAll={() => {
-          refreshList(false)
-          selection.selectMatching(filters, projection.evaluationTime)
+        onSelectAll={async (signal) => {
+          if (listStale) refreshList(false)
+          await selection.prepareMatching(filters, projection.evaluationTime, signal)
         }}
       />
       {listStale && (
@@ -455,10 +469,16 @@ export function PipelineTable({
           role="status"
         >
           {priorityRefreshPending
-            ? 'Attention priorities changed. Refresh to update this list.'
+            ? filters.view === 'today'
+              ? 'The calendar day changed. Refresh to update today’s deals.'
+              : 'Attention priorities changed. Refresh to update this list.'
             : 'Confirmed values updated. Refresh to reapply list ordering and filters.'}
           <button onClick={() => refreshList()}>
-            {priorityRefreshPending ? 'Refresh priorities' : 'Refresh list'}
+            {priorityRefreshPending
+              ? filters.view === 'today'
+                ? 'Refresh today’s deals'
+                : 'Refresh priorities'
+              : 'Refresh list'}
           </button>
         </div>
       )}

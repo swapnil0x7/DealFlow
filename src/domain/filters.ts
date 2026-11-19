@@ -1,7 +1,7 @@
 import type { Deal, Stage } from './deal'
 import type { Attention } from './attention'
 
-export type WorkView = 'all' | 'mine' | 'attention'
+export type WorkView = 'all' | 'mine' | 'attention' | 'today'
 export interface PipelineFilters {
   readonly view: WorkView
   readonly search: string
@@ -20,6 +20,7 @@ export const DEFAULT_FILTERS: PipelineFilters = {
 export interface FilterableDeal {
   readonly deal: Deal
   readonly attention: Attention | null
+  readonly updatedToday?: boolean
   readonly searchName: string
 }
 
@@ -36,6 +37,7 @@ export function matchesFilters(
   return (
     (filters.view !== 'mine' || row.deal.ownerId === currentOwnerId) &&
     (filters.view !== 'attention' || row.attention !== null) &&
+    (filters.view !== 'today' || row.updatedToday === true) &&
     (!filters.ownerId || row.deal.ownerId === filters.ownerId) &&
     (!filters.stage || row.deal.stage === filters.stage) &&
     (!filters.search || row.searchName.includes(normalizeSearch(filters.search)))

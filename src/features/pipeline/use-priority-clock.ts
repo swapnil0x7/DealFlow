@@ -1,3 +1,4 @@
+import { localDayWindow } from '../../domain/calendar'
 import { useEffect } from 'react'
 import type { PipelineProjection } from './projection'
 
@@ -8,8 +9,9 @@ export function usePriorityClock(projection: PipelineProjection): void {
     const check = () => {
       clearTimeout(timer)
       if (document.hidden) return
-      projection.refreshTime(Date.now())
-      timer = setTimeout(check, 60_000)
+      const now = Date.now()
+      projection.refreshTime(now)
+      timer = setTimeout(check, Math.min(60_000, Math.max(1, localDayWindow(now).end - now)))
     }
     check()
     document.addEventListener('visibilitychange', check)

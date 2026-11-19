@@ -315,6 +315,8 @@ test('row conflict review preserves context, closes without resolving, and creat
   const panel = changesPanel(page)
   await expect(panel).toBeVisible()
   await expect(panel).not.toHaveAttribute('aria-modal', 'true')
+  // Contrast checks must sample the fully displayed panel, after its entrance fade.
+  await expect(panel).toHaveCSS('opacity', '1')
   await expect(panel).toContainText(`Negotiation (version ${record.version + 1})`)
   expect(await page.getByRole('grid').boundingBox()).toEqual(before)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
